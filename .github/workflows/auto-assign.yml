@@ -7,7 +7,7 @@ jobs:
   assign:
     runs-on: ubuntu-latest
     steps:
-      - uses: wow-actions/auto-assign@v4
+      - uses: wow-actions/auto-assign@v6
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Список всех возможных ревьюверов
