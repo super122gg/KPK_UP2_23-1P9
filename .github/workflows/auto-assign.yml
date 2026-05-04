@@ -1,13 +1,13 @@
 name: "Auto Assign Reviewers"
 on:
-  pull_request:
-    types: [opened, ready_for_review]
+  pull_request_target:
+    types: [opened, ready_for_review, synchronize]
 
 jobs:
   assign:
     runs-on: ubuntu-latest
     steps:
-      - uses: wow-actions/auto-assign@v4
+      - uses: wow-actions/auto-assign@v6
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Список всех возможных ревьюверов
