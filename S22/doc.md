@@ -214,7 +214,7 @@
 | timeslot_id | ID временного слота | integer | Равно указанному значению |
 | is_shortened | Сокращенная ли пара | boolean | 0 или 1 |
 | is_holiday | Праздничный ли день | boolean | 0 или 1 |
-| weekday_name | Название дня недели | string | Поиск по name дня недели |
+| weekday_name | Название дня недели | string | Поиск по order_number дня недели |
 | pair_number | Номер пары | integer | Равно указанному значению |
 
 **Информация возвращаемая в виде WeekdayTimeslot**
@@ -234,4 +234,4 @@
 
 **ERD-диаграмма**
 
-![Scrinshot](https://github.com/NikitaV2247/KPK_UP2_23-1P9/blob/main/S22/ERD.png)
+![Scrinshot](ERD.jpg)
