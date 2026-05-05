@@ -36,6 +36,9 @@ class Short(BaseModel):
 
     class Meta:
         table_name = 'short'
+        indexes = (
+            (('date', 'pair_number'), True),
+        )
 
 
 def create_tables():
