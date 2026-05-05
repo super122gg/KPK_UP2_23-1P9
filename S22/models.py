@@ -14,8 +14,7 @@ class Timeslot(BaseModel):
     )
     start_time = TimeField()
     end_time = TimeField(constraints=[Check('end_time > start_time')])
-    duration_min = IntegerField(constraints=[Check('duration_min > 0')])
-
+    
     class Meta:
         table_name = 'timeslot'
 
