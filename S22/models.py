@@ -9,11 +9,6 @@ class BaseModel(Model):
 
 
 class Weekday(BaseModel):
-    name = CharField(
-        max_length=20, 
-        unique=True, 
-        constraints=[Check("name GLOB '[А-Яа-я]*'")],
-    )
     order_number = IntegerField(
         unique=True, 
         constraints=[Check('order_number BETWEEN 1 AND 7')]
@@ -21,6 +16,19 @@ class Weekday(BaseModel):
 
     class Meta:
         table_name = 'weekday'
+
+    @property
+    def weekday_name(self) -> str:
+        weekdays = {
+            1: 'Понедельник',
+            2: 'Вторник',
+            3: 'Среда',
+            4: 'Четверг',
+            5: 'Пятница',
+            6: 'Суббота',
+            7: 'Воскресенье'
+        }
+        return weekdays.get(self.order_number, 'Неизвестный день')
 
 
 class Timeslot(BaseModel):
