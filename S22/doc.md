@@ -240,4 +240,4 @@
 | is_holiday | boolean |
 
 **ERD-диаграмма**
-![Scrinshot](https://github.com/NikitaV2247/)
+![Scrinshot](https://github.com/NikitaV2247/KPK_UP2_23-1P9/blob/main/S22/ERD.png)
