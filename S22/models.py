@@ -18,7 +18,7 @@ class Timeslot(BaseModel):
     class Meta:
         table_name = 'timeslot'
         indexes = (
-            (('week_day', 'pair_number'), True)
+            (('week_day', 'pair_number'), True),
         )
 
 
