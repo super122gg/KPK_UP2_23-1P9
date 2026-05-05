@@ -95,7 +95,7 @@
 | id | integer |
 | date | date |
 
-### Изменить Holiday по ID
+**Изменить Holiday по ID**
 
 **Информация требуемая для изменения Holiday**
 
