@@ -18,7 +18,9 @@ class RoomBlock(BaseModel):
     end_datetime = DateTimeField()
     status = CharField(max_length=20, default='active')
     comment = TextField(default='')
+    is_deleted = BooleanField(default=False)
 def init_db():
+    """Функция инициализирующая БД и создающая таблицы."""
     db.connect()
     db.create_tables([Room, Event, RoomBlock], safe=True)
     db.close()
