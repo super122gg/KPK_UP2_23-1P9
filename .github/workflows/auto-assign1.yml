@@ -1,0 +1,24 @@
+name: "Auto Assign Random Reviewers"
+
+on:
+  pull_request_target:
+    types: [opened, ready_for_review, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  assign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request random reviewer (except YuriSilenok)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # юзеронеймы через пробел
+          reviewers=("Bormerd")
+          random_reviewer=${reviewers[$RANDOM % ${#reviewers[@]}]}
+          gh pr edit $PR_NUMBER --add-reviewer $random_reviewer --repo $REPO
+          echo "✅ Ревьюер $random_reviewer успешно назначен"
