@@ -1,60 +1,36 @@
-name: Check Fork Sync
+name: Check Fork Synchronization
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
-  check-sync:
+  check-fork-sync:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.fork == true
+
     steps:
-      - name: Check sync status
-        uses: actions/github-script@v7
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
-          script: |
-            const pr = context.payload.pull_request;
-            const isFork = pr.head.repo.full_name !== pr.base.repo.full_name;
-            
-            if (!isFork) {
-              console.log("Not a fork, skipping");
-              return;
-            }
-            
-            // Сравниваем ветки
-            const { data: comparison } = await github.rest.repos.compareCommits({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              base: pr.base.ref,
-              head: `${pr.head.repo.owner.login}:${pr.head.ref}`
-            });
-            
-            const behindBy = comparison.behind_by;
-            
-            if (behindBy > 0) {
-              // Добавляем комментарий
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: `⚠️ **Форк не синхронизирован!** Отстаёт на ${behindBy} коммит(ов).\n\nПожалуйста, синхронизируйте ваш форк с исходным репозиторием.`
-              });
-              
-              // Запрашиваем изменения
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                event: 'REQUEST_CHANGES',
-                body: '❌ Синхронизируйте вилку'
-              });
-              
-              core.setFailed(`Fork is behind by ${behindBy} commits`);
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: '✅ Форк синхронизирован!'
-              });
-            }
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check sync
+        run: |
+          git remote add upstream https://github.com/${{ github.repository }}.git
+          git fetch upstream ${{ github.event.pull_request.base.ref }} --quiet
+
+          MERGE_BASE=$(git merge-base HEAD upstream/${{ github.event.pull_request.base.ref }})
+          UPSTREAM_HEAD=$(git rev-parse upstream/${{ github.event.pull_request.base.ref }})
+
+          if [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
+            echo ${{ github.event.pull_request.number }} > pr_number.txt
+          fi
+
+      - name: Upload PR number
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-number
+          path: pr_number.txt
+          if-no-files-found: ignore
