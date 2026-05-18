@@ -1,0 +1,60 @@
+name: Check Fork Sync
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check sync status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const isFork = pr.head.repo.full_name !== pr.base.repo.full_name;
+            
+            if (!isFork) {
+              console.log("Not a fork, skipping");
+              return;
+            }
+            
+            // Сравниваем ветки
+            const { data: comparison } = await github.rest.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: pr.base.ref,
+              head: `${pr.head.repo.owner.login}:${pr.head.ref}`
+            });
+            
+            const behindBy = comparison.behind_by;
+            
+            if (behindBy > 0) {
+              // Добавляем комментарий
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `⚠️ **Форк не синхронизирован!** Отстаёт на ${behindBy} коммит(ов).\n\nПожалуйста, синхронизируйте ваш форк с исходным репозиторием.`
+              });
+              
+              // Запрашиваем изменения
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                event: 'REQUEST_CHANGES',
+                body: '❌ Синхронизируйте вилку'
+              });
+              
+              core.setFailed(`Fork is behind by ${behindBy} commits`);
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: '✅ Форк синхронизирован!'
+              });
+            }
