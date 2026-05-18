@@ -16,7 +16,7 @@
 | event_id | Идентификатор события/причины блокировки | Да | Integer | > 0 | - |
 | start_datetime | Дата и время начала блокировки | Да | DateTime | Не в прошлом | - |
 | end_datetime | Дата и время окончания блокировки | Да | DateTime | > start_datetime | - |
-| status | Статус блокировки | Нет | String | "active", "cancelled", "pending" | "active" |
+| status | Код статуса | Нет | String | "active", "cancelled", "pending" | "active" |
 | comment | Дополнительный комментарий | Нет | String | Макс. 500 символов | "" |
 
 Перечислить уникальные комбинации параметров, если есть:
@@ -43,7 +43,7 @@
 | id | Идентификатор записи для изменения | Да | Integer | > 0 | - |
 | start_datetime | Новая дата и время начала блокировки | Нет | DateTime | Не в прошлом | - |
 | end_datetime | Новая дата и время окончания блокировки | Нет | DateTime | > start_datetime | - |
-| status | Новый статус блокировки | Нет | String | "active", "cancelled", "pending" | - |
+| status | Новый код статуса | Нет | String | "active", "cancelled", "pending" | - |
 | comment | Новый комментарий | Нет | String | Макс. 500 символов | - |
 
 Информация возвращаемая в случае удачного изменения RoomBlock и представлена в виде таблицы со столбцами:
@@ -72,7 +72,7 @@
 | event_id | Идентификатор события/причины | Integer |
 | start_datetime | Дата и время начала блокировки | DateTime |
 | end_datetime | Дата и время окончания блокировки | DateTime |
-| status | Статус блокировки | String |
+| status | Статус блокировки (строка) | String |
 | comment | Дополнительный комментарий | String |
 | created_at | Дата и время создания записи | DateTime |
 
@@ -83,7 +83,7 @@
 |---|---|---|---|
 | room_id | Идентификатор аудитории | Integer | Фильтрация по ID аудитории |
 | event_id | Идентификатор события/причины | Integer | Фильтрация по ID мероприятия |
-| status | Статус блокировки | String | Фильтрация по статусу ("active", "cancelled") |
+| status | Код статуса | String | Фильтрация по статусу ("active", "cancelled") |
 | date_from | Начало диапазона поиска | Date | Фильтрация по дате начала |
 | date_to | Конец диапазона поиска | Date | Фильтрация по дате окончания |
 | limit | Количество записей | Integer | Количество записей в ответе |
@@ -132,7 +132,7 @@
 | event_id | Идентификатор события | Обязательно | Integer | > 0 | |
 | start_datetime | Начало блокировки | Обязательно | DateTime | Не в прошлом | |
 | end_datetime | Конец блокировки | Обязательно | DateTime | > start_datetime | |
-| status | Статус | Необязательно | String | active/cancelled/pending | active |
+| status | Код статуса | Необязательно | String | active/cancelled/pending | active |
 | comment | Комментарий | Необязательно | String | Макс. 500 символов | "" |
 
 ### Информация, возвращаемая при успешном создании
@@ -157,7 +157,7 @@
 | block_id (в URL) | ID блокировки | Обязательно | Integer | > 0 | |
 | start_datetime | Новое начало | Необязательно | DateTime | Не в прошлом | None |
 | end_datetime | Новый конец | Необязательно | DateTime | > start_datetime | None |
-| status | Новый статус | Необязательно | String | active/cancelled/pending | None |
+| status | Новый код статуса | Необязательно | String | active/cancelled/pending | None |
 | comment | Новый комментарий | Необязательно | String | Макс. 500 символов | None |
 
 ### Информация, возвращаемая при успешном изменении
@@ -226,7 +226,7 @@
 |---|---|---|---|
 | room_id | ID аудитории | Необязательный | Integer |
 | event_id | ID события | Необязательный | Integer |
-| status | Статус | Необязательный | String |
+| status | Код статуса | Необязательный | String |
 | date_from | Начало периода | Необязательный | DateTime |
 | date_to | Конец периода | Необязательный | DateTime |
 | limit | Лимит записей | Необязательный | Integer |
@@ -264,7 +264,7 @@
 | Шаг | Действие |
 |-----|----------|
 | 1 | Найти в БД все записи RoomBlock с указанным room_id |
-| 2 | Исключить записи: is_deleted == True ИЛИ status == 'cancelled' |
+| 2 | Исключить записи: is_deleted == True ИЛИ status.name == 'cancelled' |
 | 3 | Исключить запись с id == exclude_id (если передан) |
 | 4 | Проверить условие пересечения: (NewStart < ExistingEnd) AND (NewEnd > ExistingStart) |
 | 5 | Если найдено пересечение → вернуть True |
