@@ -1,0 +1,32 @@
+name: Post Fork Sync Comment
+
+on:
+  workflow_run:
+    workflows: ["Check Fork Synchronization"]
+    types: [completed]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  post-comment:
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - name: Download PR number
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-number
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+        continue-on-error: true
+
+      - name: Post comment
+        run: |
+          if [ -f pr_number.txt ]; then
+            PR=$(cat pr_number.txt)
+            gh pr comment $PR --repo ${{ github.repository }} --body "⚠️ Синхронизируйте вилку с оригинальным репозиторием."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
