@@ -103,7 +103,7 @@
 | created_at | DateTime |
 
 ## ER-диаграмма
-![Scrinshot](https://github.com/super122gg/KPK_UP2_23-1P9/blob/main/S24/ERD.png)
+![Scrinshot](https://github.com/super122gg/KPK_UP2_23-1P9/blob/main/S24/erd.png)
 
 ---
 
