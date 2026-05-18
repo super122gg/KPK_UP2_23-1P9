@@ -1,17 +1,15 @@
-from fastapi import FastAPI, HTTPException, Query, Depends
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Query
 from typing import Optional, List
 from datetime import datetime
 from peewee import DoesNotExist
-from playhouse.shortcuts import model_to_dict
-
-from models import Room, Event, RoomBlock, init_db
+from models import Room, Event, RoomBlock, Status, init_db
 from pydantic_models import (
     RoomBlockCreate, RoomBlockUpdate, RoomBlockResponse,
     RoomCreate, RoomResponse,
     EventCreate, EventResponse
 )
 from logic import check_time_overlap, validate_datetime
+
 app = FastAPI(
     title="Room Availability Service",
     description="Сервис занятости аудиторий",
@@ -27,8 +25,9 @@ async def create_block(block: RoomBlockCreate):
     try:
         room = Room.get_by_id(block.room_id)
         event = Event.get_by_id(block.event_id)
+        status = Status.get(Status.name == block.status)
     except DoesNotExist:
-        raise HTTPException(status_code=404, detail="Room или Event не найден")
+        raise HTTPException(status_code=404, detail="Room, Event или Status не найден")
     is_valid, error_msg = validate_datetime(block.start_datetime, block.end_datetime)
     if not is_valid:
         raise HTTPException(status_code=400, detail=error_msg)
@@ -40,9 +39,9 @@ async def create_block(block: RoomBlockCreate):
     new_block = RoomBlock.create(
         room=room,
         event=event,
+        status=status, 
         start_datetime=block.start_datetime,
         end_datetime=block.end_datetime,
-        status=block.status,
         comment=block.comment
     )
     return RoomBlockResponse.model_validate(new_block)
@@ -52,12 +51,16 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         existing_block = RoomBlock.get_by_id(block_id)
     except DoesNotExist:
-        raise HTTPException(status_code=404, detail="Блокировка не найдена")
+        raise HTTPException(status_code=404, detail="Блокировка не найдена")   
     update_data = block_data.model_dump(exclude_unset=True)
+    if 'status' in update_data and update_data['status']:
+        try:
+            update_data['status'] = Status.get(Status.name == update_data['status'])
+        except DoesNotExist:
+            raise HTTPException(status_code=400, detail="Неверный статус")
     if 'start_datetime' in update_data or 'end_datetime' in update_data:
         start = update_data.get('start_datetime', existing_block.start_datetime)
         end = update_data.get('end_datetime', existing_block.end_datetime)
-        
         is_valid, error_msg = validate_datetime(start, end)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_msg)
@@ -68,7 +71,9 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             )
     for field, value in update_data.items():
         setattr(existing_block, field, value)
+    
     existing_block.save()
+    
     return RoomBlockResponse.model_validate(existing_block)
 
 @app.delete("/blocks/{block_id}")
@@ -93,21 +98,21 @@ async def get_block(block_id: int):
 
 @app.get("/blocks/", response_model=List[RoomBlockResponse])
 async def get_blocks(
-    room_id: Optional[int] = Query(None, ge=1, description="ID аудитории"),
-    event_id: Optional[int] = Query(None, ge=1, description="ID события"),
+    room_id: Optional[int] = Query(None, ge=1),
+    event_id: Optional[int] = Query(None, ge=1),
     status: Optional[str] = Query(None, pattern="^(active|cancelled|pending)$"),
-    date_from: Optional[datetime] = Query(None, description="Начало диапазона"),
-    date_to: Optional[datetime] = Query(None, description="Конец диапазона"),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
-    query = RoomBlock.select().where(RoomBlock.is_deleted == False)
+    query = RoomBlock.select().join(Status).where(RoomBlock.is_deleted == False) 
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
     if event_id:
         query = query.where(RoomBlock.event_id == event_id)
     if status:
-        query = query.where(RoomBlock.status == status)
+        query = query.join(Status).where(Status.name == status)
     if date_from:
         query = query.where(RoomBlock.start_datetime >= date_from)
     if date_to:
