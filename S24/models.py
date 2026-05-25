@@ -6,7 +6,7 @@ db = SqliteDatabase('room_availability.db')
 class BaseModel(Model):
     class Meta:
         database = db
-        
+
 class Status(BaseModel):
     name = CharField(unique=True, max_length=20)
     description = CharField(max_length=100, null=True)
@@ -30,6 +30,14 @@ class RoomBlock(BaseModel):
     is_deleted = BooleanField(default=False)
     created_at = DateTimeField(default=datetime.now)
     updated_at = DateTimeField(default=datetime.now)
+
+    class Meta:
+        indexes = [
+            (('room_id', 'start_datetime', 'end_datetime'), True)
+        ]
+        constraints = [
+            Check('end_datetime > start_datetime')
+        ]
 
 def init_db():
     db.connect()
