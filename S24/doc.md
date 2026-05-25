@@ -3,7 +3,7 @@
 ## Функционал сервиса
 - Добавить RoomBlock
 - Изменить RoomBlock по ID
-- Удалить RoomBlock по ID (soft delete)
+- Удаление RoomBlock по ID
 - Получить RoomBlock по ID
 - Получить список RoomBlock по заданным параметрам
 
@@ -22,9 +22,10 @@
 | end_datetime | Дата и время окончания блокировки | Да | DateTime | > start_datetime | - |
 | status_id | Идентификатор статуса (FK → Status) | Нет | Integer | > 0 | 1 |
 | comment | Дополнительный комментарий | Нет | String | Макс. 500 символов | "" |
+| is_deleted | Флаг удаления (soft delete) | Нет | Boolean | True/False | False |
 
 Перечислить уникальные комбинации параметров, если есть:
-Уникальная комбинация `(room_id, start_datetime, end_datetime)` не допускается. Блокировки могут накладываться только если временные интервалы не пересекаются.
+Уникальная комбинация `(room_id, start_datetime, end_datetime)` не допускается. Временные интервалы для одной аудитории не должны пересекаться.
 
 Информация возвращаемая в случае удачного создания RoomBlock представлена в виде таблицы со столбцами:
 
@@ -37,6 +38,7 @@
 | end_datetime | DateTime |
 | status_id | Integer |
 | comment | String |
+| is_deleted | Boolean |
 | created_at | DateTime |
 
 ## Изменить RoomBlock по ID
@@ -53,6 +55,7 @@
 | end_datetime | Новая дата и время окончания блокировки | Нет | DateTime | > start_datetime | - |
 | status_id | Новый идентификатор статуса (FK → Status) | Нет | Integer | > 0 | - |
 | comment | Новый комментарий | Нет | String | Макс. 500 символов | - |
+| is_deleted | Флаг удаления (soft delete) | Нет | Boolean | True/False | - |
 
 Информация возвращаемая в случае удачного изменения RoomBlock представлена в виде таблицы со столбцами:
 
@@ -65,6 +68,7 @@
 | end_datetime | DateTime |
 | status_id | Integer |
 | comment | String |
+| is_deleted | Boolean |
 | updated_at | DateTime |
 
 ## Удаление RoomBlock по ID
@@ -72,9 +76,7 @@
 |---|---|
 | `DELETE` | `/blocks/{block_id}/` |
 
-Вернет True, если RoomBlock была закрыта (удалена), иначе вернет False.
-
-**Примечание:** Удаление реализуется через поле `is_deleted` (soft delete). Запись не удаляется физически из БД, а помечается как неактивная.
+Вернет True, если RoomBlock была закрыта (удалена), иначе вернет False. Фактически запись из БД не удаляется, а реализуется через булевое поле is_deleted.
 
 ## Получить RoomBlock по ID
 |Метод| Ссылка |
@@ -92,6 +94,7 @@
 | end_datetime | Дата и время окончания блокировки | DateTime |
 | status_id | Идентификатор статуса | Integer |
 | comment | Дополнительный комментарий | String |
+| is_deleted | Флаг удаления (soft delete) | Boolean |
 | created_at | Дата и время создания записи | DateTime |
 
 ## Получить список RoomBlock по заданным параметрам
@@ -122,6 +125,7 @@
 | end_datetime | DateTime |
 | status_id | Integer |
 | comment | String |
+| is_deleted | Boolean |
 | created_at | DateTime |
 
 ## ER-диаграмма
