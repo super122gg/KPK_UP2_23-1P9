@@ -37,7 +37,6 @@
 | end_datetime | DateTime |
 | status_id | Integer |
 | comment | String |
-| is_deleted | Boolean |
 | created_at | DateTime |
 
 ## Изменить RoomBlock по ID
@@ -66,7 +65,6 @@
 | end_datetime | DateTime |
 | status_id | Integer |
 | comment | String |
-| is_deleted | Boolean |
 | updated_at | DateTime |
 
 ## Удаление RoomBlock по ID
@@ -94,7 +92,6 @@
 | end_datetime | Дата и время окончания блокировки | DateTime |
 | status_id | Идентификатор статуса | Integer |
 | comment | Дополнительный комментарий | String |
-| is_deleted | Флаг удаления (soft delete) | Boolean |
 | created_at | Дата и время создания записи | DateTime |
 
 ## Получить список RoomBlock по заданным параметрам
@@ -125,7 +122,6 @@
 | end_datetime | DateTime |
 | status_id | Integer |
 | comment | String |
-| is_deleted | Boolean |
 | created_at | DateTime |
 
 ## ER-диаграмма
