@@ -83,8 +83,6 @@
 | created_at | DateTime |
 | updated_at | DateTime |
 
-> PATCH возвращает полный объект блокировки; поле `created_at` присутствует, но не изменяется.
-
 ## Удаление RoomBlock по ID
 |Метод| Ссылка |
 |---|---|
@@ -201,21 +199,4 @@
 
 ![ER-диаграмма](erd.png)
 
-### Соответствие ER-диаграммы модели данных (`models.py`)
 
-Текущий файл `erd.png` **не полностью совпадает** с реализацией. При перерисовке диаграммы добавьте в сущность **RoomBlock**:
-
-| Поле | Тип | Ограничение | Пояснение |
-|---|---|---|---|
-| comment | String(500) | default `""` | Комментарий к блокировке |
-| is_deleted | Boolean | default `False` | Soft delete (запись не удаляется физически) |
-| created_at | DateTime | default now | Дата и время создания |
-| updated_at | DateTime | default now | Дата и время последнего изменения |
-
-Также на диаграмме укажите:
-
-- Уникальный индекс `(room_id, start_datetime, end_datetime)`.
-- CHECK-ограничение `end_datetime > start_datetime`.
-- Связь Room ↔ Event через транзитивную таблицу RoomBlock (многие-ко-многим) — уже есть на диаграмме.
-
-Сущности **Room**, **Event**, **Status** на диаграмме соответствуют `models.py`. Поле `description` в **Status** допускает NULL.
