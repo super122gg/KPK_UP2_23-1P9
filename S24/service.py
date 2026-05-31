@@ -11,7 +11,6 @@ class RoomCreate(BaseModel):
     floor: int = Field(..., ge=0)
     capacity: int = Field(..., ge=1)
 
-
 class RoomResponse(BaseModel):
     id: int
     number: str
