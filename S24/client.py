@@ -129,6 +129,23 @@ def main():
 
             print("\nПовторное удаление (ожидается False):")
             _print(delete_block(client, block_id))
+
+            start2 = datetime.now() + timedelta(hours=3)
+            end2 = start2 + timedelta(hours=1)
+            cancelled = create_block(
+                client, room["id"], event["id"], start2, end2,
+                status_id=2, comment="Отменённая",
+            )
+            print("\nОтменённая блокировка (status_id=2):")
+            _print(cancelled)
+            start3 = start2 + timedelta(minutes=15)
+            end3 = end2 + timedelta(minutes=15)
+            active_overlap = create_block(
+                client, room["id"], event["id"], start3, end3,
+                status_id=1, comment="Активная, пересекается по времени",
+            )
+            print("\nАктивная блокировка с пересечением (ожидается успех — cancelled не учитывается):")
+            _print(active_overlap)
     except httpx.HTTPStatusError as exc:
         print(f"Ошибка API {exc.response.status_code}: {exc.response.text}")
         sys.exit(1)
