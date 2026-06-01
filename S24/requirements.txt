@@ -2,3 +2,4 @@
 uvicorn
 peewee
 pydantic
+httpx
