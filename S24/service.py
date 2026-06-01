@@ -11,6 +11,7 @@ class RoomCreate(BaseModel):
     floor: int = Field(..., ge=0)
     capacity: int = Field(..., ge=1)
 
+
 class RoomResponse(BaseModel):
     id: int
     number: str
@@ -101,9 +102,9 @@ def shutdown_event():
 @app.post("/blocks/", response_model=RoomBlockResponse, status_code=201)
 async def create_block(block: RoomBlockCreate):
     try:
-        room = Room.get_by_id(block.room_id)
-        event = Event.get_by_id(block.event_id)
-        status = Status.get_by_id(block.status_id)
+        Room.get_by_id(block.room_id)
+        Event.get_by_id(block.event_id)
+        Status.get_by_id(block.status_id)
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Room, Event или Status не найден")
     is_valid, error_msg = validate_datetime(block.start_datetime, block.end_datetime)
@@ -113,9 +114,9 @@ async def create_block(block: RoomBlockCreate):
         raise HTTPException(status_code=409, detail="В это время аудитория уже занята")
     try:
         new_block = RoomBlock.create(
-            room=room,
-            event=event,
-            status=status,
+            room_id=block.room_id,
+            event_id=block.event_id,
+            status_id=block.status_id,
             start_datetime=block.start_datetime,
             end_datetime=block.end_datetime,
             comment=block.comment,
@@ -138,9 +139,9 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
     update_data = block_data.model_dump(exclude_unset=True)
     if 'status_id' in update_data:
         try:
-            update_data['status'] = Status.get_by_id(update_data.pop('status_id'))
+            Status.get_by_id(update_data['status_id'])
         except DoesNotExist:
-            raise HTTPException(status_code=404, detail="Status не найден")
+            raise HTTPException(status_code=404, detail='Status не найден')
     if 'start_datetime' in update_data or 'end_datetime' in update_data:
         start = update_data.get('start_datetime', existing_block.start_datetime)
         end = update_data.get('end_datetime', existing_block.end_datetime)
@@ -152,7 +153,6 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             raise HTTPException(status_code=409, detail="В это время аудитория уже занята")
     for field, value in update_data.items():
         setattr(existing_block, field, value)
-    existing_block.updated_at = datetime.now()
     existing_block.save()
     return RoomBlockResponse.model_validate(existing_block)
 
@@ -166,7 +166,6 @@ async def delete_block(block_id: int):
     if block.is_deleted:
         return False
     block.is_deleted = True
-    block.updated_at = datetime.now()
     block.save()
     return True
 
@@ -228,7 +227,7 @@ async def get_rooms():
 
 @app.post("/events/", response_model=EventResponse, status_code=201)
 async def create_event(event: EventCreate):
-    new_event = Event.create(title=event.title, type=event.type)
+    new_event = Event.create(title=event.title, event_type=event.type)
     return EventResponse.model_validate(new_event)
 
 
