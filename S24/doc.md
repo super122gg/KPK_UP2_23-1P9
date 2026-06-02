@@ -9,7 +9,7 @@
 - Удалить `RoomBlock` по ID (soft delete)
 - Получить `RoomBlock` по ID
 - Получить список `RoomBlock` по параметрам
-
+ 
 ## Добавить RoomBlock
 | Метод | Ссылка |
 |---|---|
