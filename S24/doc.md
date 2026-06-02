@@ -82,8 +82,6 @@
 | created_at | DateTime |
 | updated_at | DateTime |
 
-> PATCH возвращает полный объект блокировки; поле `created_at` присутствует, но не изменяется.
-
 ## Удаление RoomBlock по ID
 |Метод| Ссылка |
 |---|---|
