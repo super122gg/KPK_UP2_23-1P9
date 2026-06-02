@@ -22,7 +22,6 @@
 | end_datetime | Дата и время окончания блокировки | Да | DateTime | > start_datetime | - |
 | status_id | Идентификатор статуса (FK → Status) | Нет | Integer | > 0 | 1 (active) |
 | comment | Дополнительный комментарий | Нет | String | Макс. 500 символов | "" |
-| is_deleted | Флаг удаления (soft delete) | Нет | Boolean | True/False | False |
 
 Перечислить уникальные комбинации параметров, если есть:
 
@@ -83,12 +82,16 @@
 | created_at | DateTime |
 | updated_at | DateTime |
 
+> PATCH возвращает полный объект блокировки; поле `created_at` присутствует, но не изменяется.
+
 ## Удаление RoomBlock по ID
 |Метод| Ссылка |
 |---|---|
 | `DELETE` | `/blocks/{block_id}` |
 
-Вернет `true`, если RoomBlock была закрыта (удалена), иначе вернет `false`. Фактически запись из БД не удаляется, а реализуется через булевое поле `is_deleted`.
+HTTP-статус ответа: `200`.
+
+Возвращает `true`, если RoomBlock была закрыта (удалена), иначе возвращает `false`. Фактически запись из БД не удаляется, а реализуется через булевое поле `is_deleted`.
 
 При повторном удалении или если запись не найдена — возвращается `false` (HTTP 200).
 
@@ -110,6 +113,7 @@
 | comment | Дополнительный комментарий | String |
 | is_deleted | Флаг удаления (soft delete) | Boolean |
 | created_at | Дата и время создания записи | DateTime |
+| updated_at | Дата и время последнего изменения записи | DateTime |
 
 ## Получить список RoomBlock по заданным параметрам
 |Метод| Ссылка |
@@ -141,6 +145,7 @@
 | comment | String |
 | is_deleted | Boolean |
 | created_at | DateTime |
+| updated_at | DateTime |
 
 ## Вспомогательные эндпоинты
 
@@ -211,5 +216,3 @@
 ## ER-диаграмма
 
 ![ER-диаграмма](erd.png)
-
-В коде (`models.py`): внешние ключи в **RoomBlock** названы `room_id`, `event_id`, `status_id` (как в API); у **Event** поле `type`; `status_id` по умолчанию `1` (active); `updated_at` обновляется в методе `RoomBlock.save()`.
