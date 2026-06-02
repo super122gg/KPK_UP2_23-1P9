@@ -6,21 +6,6 @@ from pydantic import BaseModel, Field
 from models import RoomBlock, Status, db, init_db
 
 
-def check_time_overlap(
-    room_id: int,
-    start: datetime,
-    end: datetime,
-    exclude_id: int = None,
-) -> bool:
-    return RoomBlock.has_time_overlap(room_id, start, end, exclude_id=exclude_id)
-
-
-def validate_datetime(start: datetime, end: datetime, check_past: bool = True) -> tuple:
-    if start >= end:
-        return False, 'end_datetime должен быть позже start_datetime'
-    if not RoomBlock.validate_not_past(start, check_past=check_past):
-        return False, 'start_datetime не может быть в прошлом'
-    return True, ''
 
 class RoomBlockCreate(BaseModel):
     room_id: int = Field(..., ge=1)
@@ -78,11 +63,6 @@ async def create_block(block: RoomBlockCreate):
         Status.get_by_id(block.status_id)
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Status не найден")
-    is_valid, error_msg = validate_datetime(block.start_datetime, block.end_datetime)
-    if not is_valid:
-        raise HTTPException(status_code=400, detail=error_msg)
-    if check_time_overlap(block.room_id, block.start_datetime, block.end_datetime):
-        raise HTTPException(status_code=409, detail="В это время аудитория уже занята")
     try:
         new_block = RoomBlock.create(
             room_id=block.room_id,
@@ -114,16 +94,6 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             Status.get_by_id(update_data['status_id'])
         except DoesNotExist:
             raise HTTPException(status_code=404, detail='Status не найден')
-    if 'start_datetime' in update_data or 'end_datetime' in update_data:
-        start = update_data.get('start_datetime', existing_block.start_datetime)
-        end = update_data.get('end_datetime', existing_block.end_datetime)
-        check_past = 'start_datetime' in update_data
-        is_valid, error_msg = validate_datetime(start, end, check_past=check_past)
-        if not is_valid:
-            raise HTTPException(status_code=400, detail=error_msg)
-        effective_status_id = update_data.get('status_id', existing_block.status_id)
-        if effective_status_id != Status.CANCELLED_STATUS_ID and check_time_overlap(existing_block.room_id, start, end, exclude_id=block_id):
-            raise HTTPException(status_code=409, detail="В это время аудитория уже занята")
     for field, value in update_data.items():
         setattr(existing_block, field, value)
     try:
