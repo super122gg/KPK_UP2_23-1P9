@@ -34,14 +34,11 @@ class RoomBlock(BaseModel):
             raise ValueError('start_datetime не может быть в прошлом')
         if self.end_datetime <= self.start_datetime:
             raise ValueError('end_datetime должен быть позже start_datetime')
-        if len(self.comment or '') > 500:
-            raise ValueError('comment не должен превышать 500 символов')
         if (not self.is_deleted) and self.status_id != Status.CANCELLED_STATUS_ID:
             exclude_id = self.id if self.id is not None else None
             if self.has_time_overlap(self.room_id, self.start_datetime, self.end_datetime, exclude_id=exclude_id):
                 raise ValueError('В это время аудитория уже занята')
-        if self.id is not None:
-            self.updated_at = datetime.now()
+        self.updated_at = datetime.now()
         return super().save(*args, **kwargs)
 
     @classmethod
