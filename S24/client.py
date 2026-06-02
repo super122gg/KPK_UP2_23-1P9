@@ -1,5 +1,3 @@
-"""HTTP-клиент для Room Availability Service (только запросы к API, не сервер)."""
-
 import json
 import os
 import sys
