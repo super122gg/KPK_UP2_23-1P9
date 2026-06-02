@@ -1,3 +1,5 @@
+"""HTTP-клиент для Room Availability Service (только запросы к API, не сервер)."""
+
 import json
 import os
 import sys
@@ -14,26 +16,6 @@ BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 
 def _print(data):
     print(json.dumps(data, ensure_ascii=False, indent=2, default=str))
-
-
-def create_room(client: httpx.Client, number: str, floor: int, capacity: int):
-    response = client.post(f"{BASE_URL}/rooms/", json={
-        "number": number,
-        "floor": floor,
-        "capacity": capacity,
-    })
-    response.raise_for_status()
-    return response.json()
-
-
-def create_event(client: httpx.Client, title: str, event_type: str):
-    response = client.post(f"{BASE_URL}/events/", json={
-        "title": title,
-        "type": event_type,
-    })
-    response.raise_for_status()
-    return response.json()
-
 
 def create_block(client: httpx.Client, room_id: int, event_id: int,
                  start: datetime, end: datetime, status_id: int = 1, comment: str = ""):
@@ -97,19 +79,12 @@ def main():
                 sys.exit(1)
 
             print("Сервис доступен:", health.json())
-
-            room_number = str(int(datetime.now().timestamp()))[-10:]
-            room = create_room(client, room_number, 1, 30)
-            print(f"\nСоздана аудитория (номер {room_number}):")
-            _print(room)
-
-            event = create_event(client, "Ремонт", "maintenance")
-            print("\nСоздано событие:")
-            _print(event)
+            room_id = 101
+            event_id = 501
 
             start = datetime.now() + timedelta(hours=1)
             end = start + timedelta(hours=2)
-            block = create_block(client, room["id"], event["id"], start, end, comment="Покраска")
+            block = create_block(client, room_id, event_id, start, end, comment="Покраска")
             print("\nСоздана блокировка:")
             _print(block)
 
@@ -118,7 +93,7 @@ def main():
             _print(get_block(client, block_id))
 
             print("\nСписок блокировок (status_id=1):")
-            _print(list_blocks(client, status_id=1, room_id=room["id"]))
+            _print(list_blocks(client, status_id=1, room_id=room_id))
 
             new_end = end + timedelta(hours=1)
             print("\nОбновление блокировки:")
@@ -133,7 +108,7 @@ def main():
             start2 = datetime.now() + timedelta(hours=3)
             end2 = start2 + timedelta(hours=1)
             cancelled = create_block(
-                client, room["id"], event["id"], start2, end2,
+                client, room_id, event_id, start2, end2,
                 status_id=2, comment="Отменённая",
             )
             print("\nОтменённая блокировка (status_id=2):")
@@ -141,7 +116,7 @@ def main():
             start3 = start2 + timedelta(minutes=15)
             end3 = end2 + timedelta(minutes=15)
             active_overlap = create_block(
-                client, room["id"], event["id"], start3, end3,
+                client, room_id, event_id, start3, end3,
                 status_id=1, comment="Активная, пересекается по времени",
             )
             print("\nАктивная блокировка с пересечением (ожидается успех — cancelled не учитывается):")
