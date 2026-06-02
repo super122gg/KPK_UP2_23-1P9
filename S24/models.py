@@ -26,11 +26,7 @@ class Room(BaseModel):
 
 class Event(BaseModel):
     title = CharField(max_length=100)
-    event_type = CharField(column_name='type', max_length=50)
-
-    @property
-    def type(self):
-        return self.event_type
+    type = CharField(max_length=50)
 
 
 class RoomBlock(BaseModel):
@@ -56,12 +52,37 @@ class RoomBlock(BaseModel):
             self.updated_at = datetime.now()
         return super().save(*args, **kwargs)
 
+    @classmethod
+    def active(cls):
+        return cls.select().where(cls.is_deleted == False)
+
+    @staticmethod
+    def validate_not_past(start_datetime: datetime, check_past: bool = True) -> bool:
+        if not check_past:
+            return True
+        return start_datetime >= datetime.now()
+
+    @classmethod
+    def has_time_overlap(cls, room_id: int, start_datetime: datetime, end_datetime: datetime, exclude_id: int = None) -> bool:
+        query = cls.active().where(
+            (cls.room_id == room_id) &
+            (cls.status_id != CANCELLED_STATUS_ID) &
+            (cls.start_datetime < end_datetime) &
+            (cls.end_datetime > start_datetime)
+        )
+        if exclude_id is not None:
+            query = query.where(cls.id != exclude_id)
+        return query.exists()
+
     class Meta:
         indexes = [
             (('room_id', 'start_datetime', 'end_datetime'), True),
         ]
         constraints = [
             Check('end_datetime > start_datetime'),
+            Check('room_id > 0'),
+            Check('event_id > 0'),
+            Check('status_id > 0'),
         ]
 
 
