@@ -1,216 +1,162 @@
 # Сервис 24: Room Availability Service (Сервис занятости аудиторий)
 
+Сервис хранит только данные своей предметной области: блокировки аудиторий (`RoomBlock`) и локальный справочник статусов (`Status`).  
+Данные аудиторий и событий из других сервисов не дублируются: используются только внешние идентификаторы `room_id` и `event_id` как числа.
+
 ## Функционал сервиса
-- Добавить RoomBlock
-- Изменить RoomBlock по ID
-- Удаление RoomBlock по ID
-- Получить RoomBlock по ID
-- Получить список RoomBlock по заданным параметрам
+- Добавить `RoomBlock`
+- Изменить `RoomBlock` по ID
+- Удалить `RoomBlock` по ID (soft delete)
+- Получить `RoomBlock` по ID
+- Получить список `RoomBlock` по параметрам
 
 ## Добавить RoomBlock
-|Метод| Ссылка |
+| Метод | Ссылка |
 |---|---|
-|`POST`|`/blocks/`|
-
-Информация требуемая для создания RoomBlock представлена в виде таблицы со столбцами:
+| `POST` | `/blocks/` |
 
 | Параметр | Пояснение | Обязательность | Тип | Ограничение | Значение по умолчанию |
 |---|---|---|---|---|---|
-| room_id | Идентификатор аудитории | Да | Integer | > 0 | - |
-| event_id | Идентификатор события/причины блокировки | Да | Integer | > 0 | - |
-| start_datetime | Дата и время начала блокировки | Да | DateTime | Не в прошлом | - |
-| end_datetime | Дата и время окончания блокировки | Да | DateTime | > start_datetime | - |
-| status_id | Идентификатор статуса (FK → Status) | Нет | Integer | > 0 | 1 (active) |
-| comment | Дополнительный комментарий | Нет | String | Макс. 500 символов | "" |
+| `room_id` | ID аудитории (внешний ID из Room Service) | Да | Integer | > 0 | - |
+| `event_id` | ID события/причины (внешний ID) | Да | Integer | > 0 | - |
+| `start_datetime` | Дата и время начала блокировки | Да | DateTime | Не в прошлом | - |
+| `end_datetime` | Дата и время окончания блокировки | Да | DateTime | > `start_datetime` | - |
+| `status_id` | ID статуса (`Status`) | Нет | Integer | > 0 | `1` |
+| `comment` | Комментарий | Нет | String | длина <= 500 | `""` |
 
-Перечислить уникальные комбинации параметров, если есть:
+Уникальные комбинации:
+- `(room_id, start_datetime, end_datetime)` уникальна.
 
-- Уникальная комбинация `(room_id, start_datetime, end_datetime)` не допускается (индекс в БД).
-- Временные интервалы для одной аудитории не должны пересекаться (проверка в API, HTTP 409).
-- Блокировки со статусом `cancelled` (status_id = 2) **не участвуют** в проверке пересечения интервалов (реализовано в `service.py`, константа `CANCELLED_STATUS_ID = 2` в `models.py`).
-
-Коды ошибок:
-
-| HTTP | Условие |
-|---|---|
-| 400 | Некорректные даты (в прошлом, end ≤ start) |
-| 404 | room_id, event_id или status_id не найден |
-| 409 | Пересечение интервалов или дубликат `(room_id, start_datetime, end_datetime)` |
-
-Информация возвращаемая в случае удачного создания RoomBlock представлена в виде таблицы со столбцами:
+Правила пересечений:
+- интервалы одной аудитории не должны пересекаться;
+- блоки со статусом `cancelled` (`status_id = 2`) в проверке пересечений не участвуют.
 
 | Параметр | Тип |
 |---|---|
-| id | Integer |
-| room_id | Integer |
-| event_id | Integer |
-| start_datetime | DateTime |
-| end_datetime | DateTime |
-| status_id | Integer |
-| comment | String |
-| is_deleted | Boolean |
-| created_at | DateTime |
+| `id` | Integer |
+| `room_id` | Integer |
+| `event_id` | Integer |
+| `start_datetime` | DateTime |
+| `end_datetime` | DateTime |
+| `status_id` | Integer |
+| `comment` | String |
+| `is_deleted` | Boolean |
+| `created_at` | DateTime |
+| `updated_at` | DateTime |
 
 ## Изменить RoomBlock по ID
-|Метод| Ссылка |
+| Метод | Ссылка |
 |---|---|
 | `PATCH` | `/blocks/{block_id}` |
 
-Информация требуемая для изменения RoomBlock по ID представлена в виде таблицы со столбцами:
-
-| Параметр | Пояснение | Обязательность | Тип | Ограничение | Значение по умолчанию |
-|---|---|---|---|---|---|
-| block_id (в URL) | Идентификатор записи для изменения | Да | Integer | > 0 | - |
-| start_datetime | Новая дата и время начала блокировки | Нет | DateTime | Не в прошлом | - |
-| end_datetime | Новая дата и время окончания блокировки | Нет | DateTime | > start_datetime | - |
-| status_id | Новый идентификатор статуса (FK → Status) | Нет | Integer | > 0 | - |
-| comment | Новый комментарий | Нет | String | Макс. 500 символов | - |
-| is_deleted | Флаг удаления (soft delete) | Нет | Boolean | True/False | - |
-
-Информация возвращаемая в случае удачного изменения RoomBlock представлена в виде таблицы со столбцами:
+| Параметр | Пояснение | Обязательность | Тип | Ограничение |
+|---|---|---|---|---|
+| `block_id` (в URL) | Идентификатор записи для изменения | Да | Integer | > 0 |
+| `start_datetime` | Новое начало блокировки | Нет | DateTime | Не в прошлом |
+| `end_datetime` | Новое окончание блокировки | Нет | DateTime | > `start_datetime` |
+| `status_id` | Новый статус | Нет | Integer | > 0 |
+| `comment` | Новый комментарий | Нет | String | длина <= 500 |
+| `is_deleted` | Флаг soft delete | Нет | Boolean | `true/false` |
 
 | Параметр | Тип |
 |---|---|
-| id | Integer |
-| room_id | Integer |
-| event_id | Integer |
-| start_datetime | DateTime |
-| end_datetime | DateTime |
-| status_id | Integer |
-| comment | String |
-| is_deleted | Boolean |
-| created_at | DateTime |
-| updated_at | DateTime |
+| `id` | Integer |
+| `room_id` | Integer |
+| `event_id` | Integer |
+| `start_datetime` | DateTime |
+| `end_datetime` | DateTime |
+| `status_id` | Integer |
+| `comment` | String |
+| `is_deleted` | Boolean |
+| `created_at` | DateTime |
+| `updated_at` | DateTime |
 
 ## Удаление RoomBlock по ID
-|Метод| Ссылка |
+| Метод | Ссылка |
 |---|---|
 | `DELETE` | `/blocks/{block_id}` |
 
-HTTP-статус ответа: `200`.
+HTTP-статус: `200`.
 
-Возвращает `true`, если RoomBlock была закрыта (удалена), иначе возвращает `false`. Фактически запись из БД не удаляется, а реализуется через булевое поле `is_deleted`.
+Возвращаемое значение:
+- `true`, если запись была помечена удаленной;
+- `false`, если запись не найдена или уже удалена.
 
-При повторном удалении или если запись не найдена — возвращается `false` (HTTP 200).
+Запись физически не удаляется, используется поле `is_deleted`.
 
 ## Получить RoomBlock по ID
-|Метод| Ссылка |
+| Метод | Ссылка |
 |---|---|
 | `GET` | `/blocks/{block_id}` |
 
-Информация возвращаемая в случае удачного поиска RoomBlock по ID представлена в виде таблицы со столбцами:
-
 | Параметр | Пояснение | Тип |
 |---|---|---|
-| id | Идентификатор записи | Integer |
-| room_id | Идентификатор аудитории | Integer |
-| event_id | Идентификатор события/причины | Integer |
-| start_datetime | Дата и время начала блокировки | DateTime |
-| end_datetime | Дата и время окончания блокировки | DateTime |
-| status_id | Идентификатор статуса | Integer |
-| comment | Дополнительный комментарий | String |
-| is_deleted | Флаг удаления (soft delete) | Boolean |
-| created_at | Дата и время создания записи | DateTime |
-| updated_at | Дата и время последнего изменения записи | DateTime |
+| `id` | Идентификатор записи | Integer |
+| `room_id` | ID аудитории | Integer |
+| `event_id` | ID события | Integer |
+| `start_datetime` | Начало блокировки | DateTime |
+| `end_datetime` | Окончание блокировки | DateTime |
+| `status_id` | ID статуса | Integer |
+| `comment` | Комментарий | String |
+| `is_deleted` | Флаг soft delete | Boolean |
+| `created_at` | Дата создания | DateTime |
+| `updated_at` | Дата изменения | DateTime |
+
+Удаленные записи (`is_deleted = true`) по этому эндпоинту не возвращаются (`404`).
 
 ## Получить список RoomBlock по заданным параметрам
-|Метод| Ссылка |
+| Метод | Ссылка |
 |---|---|
 | `GET` | `/blocks/` |
 
-Информация требуемая для получения списка RoomBlock представлена в виде таблицы со столбцами:
-
 | Параметр | Пояснение | Тип |
 |---|---|---|
-| room_id | Идентификатор аудитории | Integer |
-| event_id | Идентификатор события/причины | Integer |
-| status_id | Идентификатор статуса | Integer |
-| date_from | Начало диапазона поиска | DateTime |
-| date_to | Конец диапазона поиска | DateTime |
-| limit | Количество записей (1..100) | Integer |
-| offset | Смещение (>=0) | Integer |
-
-Информация возвращается в виде списка RoomBlock и представлена в виде таблицы со столбцами:
+| `room_id` | Фильтр по аудитории | Integer |
+| `event_id` | Фильтр по событию | Integer |
+| `status_id` | Фильтр по статусу | Integer |
+| `date_from` | Левая граница периода | DateTime |
+| `date_to` | Правая граница периода | DateTime |
+| `limit` | Лимит (1..100) | Integer |
+| `offset` | Смещение (>=0) | Integer |
 
 | Параметр | Тип |
 |---|---|
-| id | Integer |
-| room_id | Integer |
-| event_id | Integer |
-| start_datetime | DateTime |
-| end_datetime | DateTime |
-| status_id | Integer |
-| comment | String |
-| is_deleted | Boolean |
-| created_at | DateTime |
-| updated_at | DateTime |
+| `id` | Integer |
+| `room_id` | Integer |
+| `event_id` | Integer |
+| `start_datetime` | DateTime |
+| `end_datetime` | DateTime |
+| `status_id` | Integer |
+| `comment` | String |
+| `is_deleted` | Boolean |
+| `created_at` | DateTime |
+| `updated_at` | DateTime |
 
-## Вспомогательные эндпоинты
-
-Используются для подготовки тестовых данных (создание аудиторий и событий перед блокировкой). Не являются основным CRUD RoomBlock, но реализованы в `service.py`.
-
-### Добавить Room
-
-| Метод | Ссылка |
+## Коды ошибок
+| HTTP | Условие |
 |---|---|
-| `POST` | `/rooms/` |
+| `400` | Некорректные даты (`start` в прошлом, `end <= start`) |
+| `404` | Не найден `block_id` или `status_id` |
+| `409` | Пересечение интервалов или дубликат `(room_id, start_datetime, end_datetime)` |
 
-| Параметр | Пояснение | Обязательность | Тип | Ограничение |
-|---|---|---|---|---|
-| number | Номер аудитории | Да | String | Макс. 10 символов, уникальный |
-| floor | Этаж | Да | Integer | ≥ 0 |
-| capacity | Вместимость | Да | Integer | > 0 |
-
-Информация возвращаемая в случае удачного создания Room представлена в виде таблицы:
-
-| Параметр | Тип |
-|---|---|
-| id | Integer |
-| number | String |
-| floor | Integer |
-| capacity | Integer |
-
-### Получить список Room
-
-| Метод | Ссылка |
-|---|---|
-| `GET` | `/rooms/` |
-
-### Добавить Event
-
-| Метод | Ссылка |
-|---|---|
-| `POST` | `/events/` |
-
-| Параметр | Пояснение | Обязательность | Тип | Ограничение |
-|---|---|---|---|---|
-| title | Название события/причины | Да | String | Макс. 100 символов |
-| type | Тип события | Да | String | Макс. 50 символов |
-
-Информация возвращаемая в случае удачного создания Event представлена в виде таблицы:
-
-| Параметр | Тип |
-|---|---|
-| id | Integer |
-| title | String |
-| type | String |
-
-### Получить список Event
-
-| Метод | Ссылка |
-|---|---|
-| `GET` | `/events/` |
-
-### Справочник Status (инициализация БД)
-
-При первом запуске в БД создаются записи:
-
+## Справочник Status (инициализация БД)
 | id | name | description |
 |---|---|---|
 | 1 | active | Активная блокировка |
 | 2 | cancelled | Отменённая блокировка |
 | 3 | pending | Ожидает подтверждения |
 
+## Точки входа REST API
+| Метод | Эндпоинт | Описание |
+|---|---|---|
+| `POST` | `/blocks/` | Создать блокировку |
+| `PATCH` | `/blocks/{block_id}` | Обновить блокировку |
+| `DELETE` | `/blocks/{block_id}` | Удалить блокировку (soft delete) |
+| `GET` | `/blocks/{block_id}` | Получить блокировку по ID |
+| `GET` | `/blocks/` | Получить список блокировок |
+| `GET` | `/health` | Проверка доступности сервиса |
+
 ## ER-диаграмма
+ER-диаграмма представлена в файле `erd.png`:
 
 ![ER-диаграмма](erd.png)
