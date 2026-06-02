@@ -20,14 +20,7 @@ class Status(BaseModel):
 class RoomBlock(BaseModel):
     room_id = IntegerField(null=False, constraints=[Check('room_id > 0')])
     event_id = IntegerField(null=False, constraints=[Check('event_id > 0')])
-    status_id = ForeignKeyField(
-        Status,
-        backref='blocks',
-        null=False,
-        on_delete='RESTRICT',
-        column_name='status_id',
-        default=Status.ACTIVE_STATUS_ID,
-    )
+    status_id = IntegerField(null=False, default=Status.ACTIVE_STATUS_ID, constraints=[Check('status_id > 0')])
     start_datetime = DateTimeField()
     end_datetime = DateTimeField()
     comment = CharField(max_length=500, default='')
@@ -36,6 +29,17 @@ class RoomBlock(BaseModel):
     updated_at = DateTimeField(default=datetime.now)
 
     def save(self, *args, **kwargs):
+        check_past = self.id is None or (RoomBlock.start_datetime in self.dirty_fields)
+        if not self.validate_not_past(self.start_datetime, check_past=check_past):
+            raise ValueError('start_datetime не может быть в прошлом')
+        if self.end_datetime <= self.start_datetime:
+            raise ValueError('end_datetime должен быть позже start_datetime')
+        if len(self.comment or '') > 500:
+            raise ValueError('comment не должен превышать 500 символов')
+        if (not self.is_deleted) and self.status_id != Status.CANCELLED_STATUS_ID:
+            exclude_id = self.id if self.id is not None else None
+            if self.has_time_overlap(self.room_id, self.start_datetime, self.end_datetime, exclude_id=exclude_id):
+                raise ValueError('В это время аудитория уже занята')
         if self.id is not None:
             self.updated_at = datetime.now()
         return super().save(*args, **kwargs)
@@ -66,6 +70,7 @@ class RoomBlock(BaseModel):
         constraints = [
             SQL('UNIQUE(room_id, start_datetime, end_datetime)'),
             Check('end_datetime > start_datetime'),
+            Check("length(comment) <= 500"),
         ]
 
 
