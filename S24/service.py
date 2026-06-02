@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field
-from models import CANCELLED_STATUS_ID, Event, Room, RoomBlock, Status, db, init_db
+from models import Event, Room, RoomBlock, Status, db, init_db
 
 
 def check_time_overlap(
@@ -59,7 +59,6 @@ class RoomBlockCreate(BaseModel):
     end_datetime: datetime
     status_id: int = Field(default=1, ge=1)
     comment: str = Field(default="", max_length=500)
-    is_deleted: bool = Field(default=False)
 
 
 class RoomBlockUpdate(BaseModel):
@@ -130,7 +129,6 @@ async def create_block(block: RoomBlockCreate):
             start_datetime=block.start_datetime,
             end_datetime=block.end_datetime,
             comment=block.comment,
-            is_deleted=block.is_deleted,
         )
     except IntegrityError:
         raise HTTPException(
@@ -159,8 +157,8 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         is_valid, error_msg = validate_datetime(start, end, check_past=check_past)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_msg)
-        effective_status_id = update_data.get('status_id', getattr(existing_block, 'status_id_id', existing_block.status_id.id))
-        if effective_status_id != CANCELLED_STATUS_ID and check_time_overlap(existing_block.room_id, start, end, exclude_id=block_id):
+        effective_status_id = update_data.get('status_id', existing_block.status_id.id)
+        if effective_status_id != Status.CANCELLED_STATUS_ID and check_time_overlap(existing_block.room_id, start, end, exclude_id=block_id):
             raise HTTPException(status_code=409, detail="В это время аудитория уже занята")
     for field, value in update_data.items():
         setattr(existing_block, field, value)
@@ -168,7 +166,7 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
     return RoomBlockResponse.model_validate(existing_block)
 
 
-@app.delete("/blocks/{block_id}")
+@app.delete("/blocks/{block_id}", status_code=200)
 async def delete_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
@@ -209,15 +207,13 @@ async def get_blocks(
         query = query.where(RoomBlock.event_id == event_id)
     if status_id:
         query = query.where(RoomBlock.status_id == status_id)
-    if date_from and date_to:
+    if date_from or date_to:
+        range_start = date_from if date_from else datetime.min
+        range_end = date_to if date_to else datetime.max
         query = query.where(
-            (RoomBlock.start_datetime < date_to) &
-            (RoomBlock.end_datetime > date_from)
+            (RoomBlock.start_datetime < range_end) &
+            (RoomBlock.end_datetime > range_start)
         )
-    elif date_from:
-        query = query.where(RoomBlock.end_datetime > date_from)
-    elif date_to:
-        query = query.where(RoomBlock.start_datetime < date_to)
     query = query.order_by(RoomBlock.start_datetime).limit(limit).offset(offset)
     return [RoomBlockResponse.model_validate(block) for block in query]
 
