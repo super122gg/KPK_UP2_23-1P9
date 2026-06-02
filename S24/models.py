@@ -1,5 +1,4 @@
 from datetime import datetime
-
 from peewee import *
 
 db = SqliteDatabase('room_availability.db')
@@ -18,24 +17,9 @@ class Status(BaseModel):
     description = CharField(max_length=100)
 
 
-ACTIVE_STATUS_ID = Status.ACTIVE_STATUS_ID
-CANCELLED_STATUS_ID = Status.CANCELLED_STATUS_ID
-
-
-class Room(BaseModel):
-    number = CharField(unique=True, max_length=10)
-    floor = IntegerField(constraints=[Check('floor >= 0')])
-    capacity = IntegerField(constraints=[Check('capacity > 0')])
-
-
-class Event(BaseModel):
-    title = CharField(max_length=100)
-    type = CharField(max_length=50)
-
-
 class RoomBlock(BaseModel):
-    room_id = ForeignKeyField(Room, backref='blocks', null=False, on_delete='CASCADE', column_name='room_id')
-    event_id = ForeignKeyField(Event, backref='blocks', null=False, on_delete='CASCADE', column_name='event_id')
+    room_id = IntegerField(null=False, constraints=[Check('room_id > 0')])
+    event_id = IntegerField(null=False, constraints=[Check('event_id > 0')])
     status_id = ForeignKeyField(
         Status,
         backref='blocks',
@@ -87,7 +71,7 @@ class RoomBlock(BaseModel):
 
 def init_db(close_after: bool = False):
     db.connect(reuse_if_open=True)
-    db.create_tables([Status, Room, Event, RoomBlock], safe=True)
+    db.create_tables([Status, RoomBlock], safe=True)
     statuses = (
         (Status.ACTIVE_STATUS_ID, 'active', 'Активная блокировка'),
         (Status.CANCELLED_STATUS_ID, 'cancelled', 'Отменённая блокировка'),
