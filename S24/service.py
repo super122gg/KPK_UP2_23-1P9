@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import List, Optional
+
 from fastapi import FastAPI, HTTPException, Query
 from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field
-from models import RoomBlock, Status, db, init_db
 
+from models import RoomBlock, Status, db, init_db
 
 
 class RoomBlockCreate(BaseModel):
@@ -39,6 +40,7 @@ class RoomBlockResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 app = FastAPI(
     title="Room Availability Service",
     description="Сервис занятости аудиторий",
@@ -60,14 +62,15 @@ def shutdown_event():
 @app.post("/blocks/", response_model=RoomBlockResponse, status_code=201)
 async def create_block(block: RoomBlockCreate):
     try:
-        Status.get_by_id(block.status_id)
+        status = Status.get_by_id(block.status_id)
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Status не найден")
+
     try:
         new_block = RoomBlock.create(
             room_id=block.room_id,
             event_id=block.event_id,
-            status_id=block.status_id,
+            status=status,
             start_datetime=block.start_datetime,
             end_datetime=block.end_datetime,
             comment=block.comment,
@@ -79,23 +82,43 @@ async def create_block(block: RoomBlockCreate):
             status_code=409,
             detail="Блокировка с такими room_id, start_datetime и end_datetime уже существует",
         )
-    return RoomBlockResponse.model_validate(new_block)
+
+    return RoomBlockResponse(
+        id=new_block.id,
+        room_id=new_block.room_id,
+        event_id=new_block.event_id,
+        start_datetime=new_block.start_datetime,
+        end_datetime=new_block.end_datetime,
+        status_id=new_block.status_id,
+        comment=new_block.comment,
+        is_deleted=new_block.is_deleted,
+        created_at=new_block.created_at,
+        updated_at=new_block.updated_at,
+    )
 
 
 @app.patch("/blocks/{block_id}", response_model=RoomBlockResponse)
 async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         existing_block = RoomBlock.get_by_id(block_id)
+
+        if existing_block.is_deleted:
+            raise HTTPException(status_code=404, detail="Блокировка не найдена")
+
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Блокировка не найдена")
+
     update_data = block_data.model_dump(exclude_unset=True)
+
     if 'status_id' in update_data:
         try:
-            Status.get_by_id(update_data['status_id'])
+            update_data['status'] = Status.get_by_id(update_data.pop('status_id'))
         except DoesNotExist:
-            raise HTTPException(status_code=404, detail='Status не найден')
+            raise HTTPException(status_code=404, detail="Status не найден")
+
     for field, value in update_data.items():
         setattr(existing_block, field, value)
+
     try:
         existing_block.save()
     except ValueError as err:
@@ -105,31 +128,49 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             status_code=409,
             detail="Блокировка с такими room_id, start_datetime и end_datetime уже существует",
         )
-    return RoomBlockResponse.model_validate(existing_block)
+
+    return RoomBlockResponse(
+        id=existing_block.id,
+        room_id=existing_block.room_id,
+        event_id=existing_block.event_id,
+        start_datetime=existing_block.start_datetime,
+        end_datetime=existing_block.end_datetime,
+        status_id=existing_block.status_id,
+        comment=existing_block.comment,
+        is_deleted=existing_block.is_deleted,
+        created_at=existing_block.created_at,
+        updated_at=existing_block.updated_at,
+    )
 
 
 @app.delete("/blocks/{block_id}", status_code=200)
 async def delete_block(block_id: int):
-    try:
-        block = RoomBlock.get_by_id(block_id)
-    except DoesNotExist:
-        return False
-    if block.is_deleted:
-        return False
-    block.is_deleted = True
-    block.save()
-    return True
+    return RoomBlock.soft_delete(block_id)
 
 
 @app.get("/blocks/{block_id}", response_model=RoomBlockResponse)
 async def get_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
+
         if block.is_deleted:
             raise HTTPException(status_code=404, detail="Блокировка не найдена")
+
     except DoesNotExist:
         raise HTTPException(status_code=404, detail="Блокировка не найдена")
-    return RoomBlockResponse.model_validate(block)
+
+    return RoomBlockResponse(
+        id=block.id,
+        room_id=block.room_id,
+        event_id=block.event_id,
+        start_datetime=block.start_datetime,
+        end_datetime=block.end_datetime,
+        status_id=block.status_id,
+        comment=block.comment,
+        is_deleted=block.is_deleted,
+        created_at=block.created_at,
+        updated_at=block.updated_at,
+    )
 
 
 @app.get("/blocks/", response_model=List[RoomBlockResponse])
@@ -143,23 +184,44 @@ async def get_blocks(
     offset: int = Query(0, ge=0),
 ):
     query = RoomBlock.select().where(RoomBlock.is_deleted == False)
+
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
+
     if event_id:
         query = query.where(RoomBlock.event_id == event_id)
+
     if status_id:
-        query = query.where(RoomBlock.status_id == status_id)
-    if date_from or date_to:
-        range_start = date_from if date_from else datetime.min
-        range_end = date_to if date_to else datetime.max
-        query = query.where(
-            (RoomBlock.start_datetime < range_end) &
-            (RoomBlock.end_datetime > range_start)
-        )
+        query = query.where(RoomBlock.status == status_id)
+
+    if date_from:
+        query = query.where(RoomBlock.end_datetime > date_from)
+
+    if date_to:
+        query = query.where(RoomBlock.start_datetime < date_to)
+
     query = query.order_by(RoomBlock.start_datetime).limit(limit).offset(offset)
-    return [RoomBlockResponse.model_validate(block) for block in query]
+
+    return [
+        RoomBlockResponse(
+            id=block.id,
+            room_id=block.room_id,
+            event_id=block.event_id,
+            start_datetime=block.start_datetime,
+            end_datetime=block.end_datetime,
+            status_id=block.status_id,
+            comment=block.comment,
+            is_deleted=block.is_deleted,
+            created_at=block.created_at,
+            updated_at=block.updated_at,
+        )
+        for block in query
+    ]
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "Room Availability Service"}
+    return {
+        "status": "ok",
+        "service": "Room Availability Service"
+    }
