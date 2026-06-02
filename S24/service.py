@@ -49,7 +49,7 @@ class RoomBlockResponse(BaseModel):
     comment: str
     is_deleted: bool
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -92,6 +92,8 @@ async def create_block(block: RoomBlockCreate):
             end_datetime=block.end_datetime,
             comment=block.comment,
         )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
     except IntegrityError:
         raise HTTPException(
             status_code=409,
@@ -119,12 +121,20 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         is_valid, error_msg = validate_datetime(start, end, check_past=check_past)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_msg)
-        effective_status_id = update_data.get('status_id', existing_block.status_id.id)
+        effective_status_id = update_data.get('status_id', existing_block.status_id)
         if effective_status_id != Status.CANCELLED_STATUS_ID and check_time_overlap(existing_block.room_id, start, end, exclude_id=block_id):
             raise HTTPException(status_code=409, detail="В это время аудитория уже занята")
     for field, value in update_data.items():
         setattr(existing_block, field, value)
-    existing_block.save()
+    try:
+        existing_block.save()
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="Блокировка с такими room_id, start_datetime и end_datetime уже существует",
+        )
     return RoomBlockResponse.model_validate(existing_block)
 
 
