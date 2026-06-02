@@ -4,9 +4,6 @@ from peewee import *
 
 db = SqliteDatabase('room_availability.db')
 
-ACTIVE_STATUS_ID = 1
-CANCELLED_STATUS_ID = 2
-
 
 class BaseModel(Model):
     class Meta:
@@ -14,8 +11,15 @@ class BaseModel(Model):
 
 
 class Status(BaseModel):
+    ACTIVE_STATUS_ID = 1
+    CANCELLED_STATUS_ID = 2
+    PENDING_STATUS_ID = 3
     name = CharField(unique=True, max_length=20)
-    description = CharField(max_length=100, null=True)
+    description = CharField(max_length=100)
+
+
+ACTIVE_STATUS_ID = Status.ACTIVE_STATUS_ID
+CANCELLED_STATUS_ID = Status.CANCELLED_STATUS_ID
 
 
 class Room(BaseModel):
@@ -38,7 +42,7 @@ class RoomBlock(BaseModel):
         null=False,
         on_delete='RESTRICT',
         column_name='status_id',
-        default=ACTIVE_STATUS_ID,
+        default=Status.ACTIVE_STATUS_ID,
     )
     start_datetime = DateTimeField()
     end_datetime = DateTimeField()
@@ -66,7 +70,7 @@ class RoomBlock(BaseModel):
     def has_time_overlap(cls, room_id: int, start_datetime: datetime, end_datetime: datetime, exclude_id: int = None) -> bool:
         query = cls.active().where(
             (cls.room_id == room_id) &
-            (cls.status_id != CANCELLED_STATUS_ID) &
+            (cls.status_id != Status.CANCELLED_STATUS_ID) &
             (cls.start_datetime < end_datetime) &
             (cls.end_datetime > start_datetime)
         )
@@ -75,23 +79,29 @@ class RoomBlock(BaseModel):
         return query.exists()
 
     class Meta:
-        indexes = [
-            (('room_id', 'start_datetime', 'end_datetime'), True),
-        ]
         constraints = [
+            SQL('UNIQUE(room_id, start_datetime, end_datetime)'),
             Check('end_datetime > start_datetime'),
-            Check('room_id > 0'),
-            Check('event_id > 0'),
-            Check('status_id > 0'),
         ]
 
 
 def init_db(close_after: bool = False):
     db.connect(reuse_if_open=True)
     db.create_tables([Status, Room, Event, RoomBlock], safe=True)
-    for name in ('active', 'cancelled', 'pending'):
-        if not Status.select().where(Status.name == name).exists():
-            Status.create(name=name)
+    statuses = (
+        (Status.ACTIVE_STATUS_ID, 'active', 'Активная блокировка'),
+        (Status.CANCELLED_STATUS_ID, 'cancelled', 'Отменённая блокировка'),
+        (Status.PENDING_STATUS_ID, 'pending', 'Ожидает подтверждения'),
+    )
+    for status_id, name, description in statuses:
+        status, created = Status.get_or_create(
+            id=status_id,
+            defaults={'name': name, 'description': description},
+        )
+        if not created:
+            status.name = name
+            status.description = description
+            status.save()
     if close_after:
         db.close()
 
