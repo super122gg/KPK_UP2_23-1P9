@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field
-from models import Event, Room, RoomBlock, Status, db, init_db
+from models import RoomBlock, Status, db, init_db
 
 
 def check_time_overlap(
@@ -21,36 +21,6 @@ def validate_datetime(start: datetime, end: datetime, check_past: bool = True) -
     if not RoomBlock.validate_not_past(start, check_past=check_past):
         return False, 'start_datetime не может быть в прошлом'
     return True, ''
-
-class RoomCreate(BaseModel):
-    number: str = Field(..., max_length=10)
-    floor: int = Field(..., ge=0)
-    capacity: int = Field(..., ge=1)
-
-
-class RoomResponse(BaseModel):
-    id: int
-    number: str
-    floor: int
-    capacity: int
-
-    class Config:
-        from_attributes = True
-
-
-class EventCreate(BaseModel):
-    title: str = Field(..., max_length=100)
-    type: str = Field(..., max_length=50)
-
-
-class EventResponse(BaseModel):
-    id: int
-    title: str
-    type: str
-
-    class Config:
-        from_attributes = True
-
 
 class RoomBlockCreate(BaseModel):
     room_id: int = Field(..., ge=1)
@@ -104,14 +74,6 @@ def shutdown_event():
 
 @app.post("/blocks/", response_model=RoomBlockResponse, status_code=201)
 async def create_block(block: RoomBlockCreate):
-    try:
-        Room.get_by_id(block.room_id)
-    except DoesNotExist:
-        raise HTTPException(status_code=404, detail="Room не найден")
-    try:
-        Event.get_by_id(block.event_id)
-    except DoesNotExist:
-        raise HTTPException(status_code=404, detail="Event не найден")
     try:
         Status.get_by_id(block.status_id)
     except DoesNotExist:
@@ -216,35 +178,6 @@ async def get_blocks(
         )
     query = query.order_by(RoomBlock.start_datetime).limit(limit).offset(offset)
     return [RoomBlockResponse.model_validate(block) for block in query]
-
-
-@app.post("/rooms/", response_model=RoomResponse, status_code=201)
-async def create_room(room: RoomCreate):
-    try:
-        new_room = Room.create(
-            number=room.number,
-            floor=room.floor,
-            capacity=room.capacity,
-        )
-        return RoomResponse.model_validate(new_room)
-    except IntegrityError:
-        raise HTTPException(status_code=409, detail="Аудитория с таким номером уже существует")
-
-
-@app.get("/rooms/", response_model=List[RoomResponse])
-async def get_rooms():
-    return [RoomResponse.model_validate(room) for room in Room.select()]
-
-
-@app.post("/events/", response_model=EventResponse, status_code=201)
-async def create_event(event: EventCreate):
-    new_event = Event.create(title=event.title, type=event.type)
-    return EventResponse.model_validate(new_event)
-
-
-@app.get("/events/", response_model=List[EventResponse])
-async def get_events():
-    return [EventResponse.model_validate(event) for event in Event.select()]
 
 
 @app.get("/health")
