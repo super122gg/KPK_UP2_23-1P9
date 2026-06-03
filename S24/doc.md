@@ -157,6 +157,23 @@ HTTP-статус: `200`.
 | `GET` | `/health` | Проверка доступности сервиса |
 
 ## ER-диаграмма
-ER-диаграмма представлена в файле `erd.png`:
-
-![ER-диаграмма](erd.png)
+```mermaid
+erDiagram
+    Status {
+        int id PK
+        string name
+        string description
+    }
+    RoomBlock {
+        int id PK
+        int room_id
+        int event_id
+        datetime start_datetime
+        datetime end_datetime
+        int status_id FK
+        string comment
+        boolean is_deleted
+        datetime created_at
+        datetime updated_at
+    }
+    Status ||--o{ RoomBlock : "has"
