@@ -19,7 +19,13 @@ class RoomBlock(BaseModel):
     id = AutoField()
     room_id = IntegerField(null=False, constraints=[Check('room_id > 0')])
     event_id = IntegerField(null=False, constraints=[Check('event_id > 0')])
-    status_id = ForeignKeyField(Status, backref='blocks', null=False, default=Status.ACTIVE_STATUS_ID)
+    status_id = ForeignKeyField(
+        Status,
+        backref='blocks',
+        null=False,
+        default=Status.ACTIVE_STATUS_ID,
+        constraints=[Check('status_id > 0')]
+    )
     start_datetime = DateTimeField()
     end_datetime = DateTimeField()
     comment = CharField(max_length=500, default='')
@@ -49,7 +55,10 @@ def init_db(close_after: bool = False):
             (3, 'pending', 'Pending confirmation'),
         ]
         for status_id, name, description in statuses:
-            Status.insert(id=status_id, name=name, description=description).on_conflict(conflict_target=[Status.id], preserve=[]).execute()
+            Status.insert(id=status_id, name=name, description=description).on_conflict(
+                conflict_target=[Status.id],
+                preserve=[]
+            ).execute()
         if close_after:
             db.close()
     except Exception as e:
