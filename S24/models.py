@@ -42,7 +42,8 @@ class RoomBlock(BaseModel):
 
     class Meta:
         constraints = [
-            Check('end_datetime > start_datetime')
+            Check('end_datetime > start_datetime'),
+            SQL('UNIQUE(room_id, start_datetime, end_datetime)')
         ]
 
     @classmethod
@@ -102,36 +103,37 @@ class RoomBlock(BaseModel):
         return query.exists()
 
     def save(self, *args, **kwargs):
-        now = self._now()
-        self.updated_at = now
+        with db.atomic():
+            now = self._now()
+            self.updated_at = now
 
-        if not self.validate_not_past(self.start_datetime):
-            raise ValueError("start_datetime cannot be in the past")
+            if not self.validate_not_past(self.start_datetime):
+                raise ValueError("start_datetime cannot be in the past")
 
-        if self.end_datetime <= self.start_datetime:
-            raise ValueError("end_datetime must be greater than start_datetime")
+            if self.end_datetime <= self.start_datetime:
+                raise ValueError("end_datetime must be greater than start_datetime")
 
-        if self.has_duplicate(
-            self.room_id,
-            self.start_datetime,
-            self.end_datetime,
-            self.id
-        ):
-            raise ValueError("Duplicate block")
-
-        if (
-            not self.is_deleted and
-            self.status_id != Status.CANCELLED_STATUS_ID and
-            self.has_time_overlap(
+            if self.has_duplicate(
                 self.room_id,
                 self.start_datetime,
                 self.end_datetime,
                 self.id
-            )
-        ):
-            raise ValueError("Time overlap")
+            ):
+                raise ValueError("Duplicate block")
 
-        return super().save(*args, **kwargs)
+            if (
+                not self.is_deleted and
+                self.status_id != Status.CANCELLED_STATUS_ID and
+                self.has_time_overlap(
+                    self.room_id,
+                    self.start_datetime,
+                    self.end_datetime,
+                    self.id
+                )
+            ):
+                raise ValueError("Time overlap")
+
+            return super().save(*args, **kwargs)
 
     @classmethod
     def soft_delete(cls, block_id: int) -> bool:
@@ -150,22 +152,27 @@ class RoomBlock(BaseModel):
 
 
 def init_db(close_after: bool = False):
-    db.connect(reuse_if_open=True)
-    db.create_tables([Status, RoomBlock], safe=True)
+    try:
+        db.connect(reuse_if_open=True)
+        db.create_tables([Status, RoomBlock], safe=True)
 
-    statuses = (
-        (1, 'active', 'Active block'),
-        (2, 'cancelled', 'Cancelled block'),
-        (3, 'pending', 'Pending confirmation'),
-    )
+        statuses = (
+            (1, 'active', 'Active block'),
+            (2, 'cancelled', 'Cancelled block'),
+            (3, 'pending', 'Pending confirmation'),
+        )
 
-    for status_id, name, description in statuses:
-        Status.replace(
-            id=status_id, name=name, description=description
-        ).execute()
+        for status_id, name, description in statuses:
+            Status.get_or_create(
+                id=status_id,
+                defaults={'name': name, 'description': description}
+            )
 
-    if close_after:
-        db.close()
+        if close_after:
+            db.close()
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+        raise
 
 
 if __name__ == "__main__":
