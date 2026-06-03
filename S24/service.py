@@ -2,10 +2,13 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from peewee import DoesNotExist, IntegrityError
-from pydantic import BaseModel, Field
+from peewee import DoesNotExist
+from pydantic import BaseModel, Field, field_validator
 
 from models import RoomBlock, Status, db, init_db
+
+# Инициализация БД при старте сервера
+init_db()
 
 
 class RoomBlockCreate(BaseModel):
@@ -16,12 +19,44 @@ class RoomBlockCreate(BaseModel):
     status_id: int = Field(default=1, ge=1)
     comment: str = Field(default="", max_length=500)
 
+    @field_validator('start_datetime')
+    def validate_start_not_past(cls, v):
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        if v <= datetime.now(timezone.utc):
+            raise ValueError('start_datetime cannot be in the past')
+        return v
+
+    @field_validator('end_datetime')
+    def validate_end_after_start(cls, v, info):
+        start = info.data.get('start_datetime')
+        if start and v <= start:
+            raise ValueError('end_datetime must be greater than start_datetime')
+        return v
+
 
 class RoomBlockUpdate(BaseModel):
     start_datetime: Optional[datetime] = None
     end_datetime: Optional[datetime] = None
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
+
+    @field_validator('start_datetime')
+    def validate_start_not_past(cls, v):
+        if v is not None:
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+            if v <= datetime.now(timezone.utc):
+                raise ValueError('start_datetime cannot be in the past')
+        return v
+
+    @field_validator('end_datetime')
+    def validate_end_after_start(cls, v, info):
+        if v is not None:
+            start = info.data.get('start_datetime')
+            if start and v <= start:
+                raise ValueError('end_datetime must be greater than start_datetime')
+        return v
 
 
 class RoomBlockResponse(BaseModel):
@@ -41,15 +76,10 @@ class RoomBlockResponse(BaseModel):
 
 
 class DeleteResponse(BaseModel):
-    result: bool
+    success: bool
 
 
 app = FastAPI(title="Room Availability Service", version="1.0.0")
-
-
-@app.on_event("startup")
-def startup():
-    init_db()
 
 
 @app.on_event("shutdown")
@@ -78,14 +108,12 @@ async def create_block(block: RoomBlockCreate):
     try:
         Status.get_by_id(block.status_id)
     except DoesNotExist:
-        raise HTTPException(404, "Status не найден")
+        raise HTTPException(404, "Status not found")
 
     try:
         new_block = RoomBlock.create(**block.model_dump())
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except IntegrityError:
-        raise HTTPException(409, "Конфликт данных (дубликат или пересечение)")
 
     return to_response(new_block)
 
@@ -95,9 +123,9 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         block = RoomBlock.get_by_id(block_id)
         if block.is_deleted:
-            raise HTTPException(404, "Блокировка не найдена")
+            raise HTTPException(404, "Block not found")
     except DoesNotExist:
-        raise HTTPException(404, "Блокировка не найдена")
+        raise HTTPException(404, "Block not found")
 
     data = block_data.model_dump(exclude_unset=True)
 
@@ -105,7 +133,7 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         try:
             Status.get_by_id(data["status_id"])
         except DoesNotExist:
-            raise HTTPException(404, "Status не найден")
+            raise HTTPException(404, "Status not found")
 
     for k, v in data.items():
         setattr(block, k, v)
@@ -114,15 +142,14 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         block.save()
     except ValueError as e:
         raise HTTPException(400, str(e))
-    except IntegrityError:
-        raise HTTPException(409, "Конфликт данных")
 
     return to_response(block)
 
 
 @app.delete("/blocks/{block_id}", response_model=DeleteResponse)
 async def delete_block(block_id: int):
-    return DeleteResponse(result=RoomBlock.soft_delete(block_id))
+    result = RoomBlock.soft_delete(block_id)
+    return DeleteResponse(success=result)
 
 
 @app.get("/blocks/{block_id}", response_model=RoomBlockResponse)
@@ -130,9 +157,9 @@ async def get_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
         if block.is_deleted:
-            raise HTTPException(404, "Не найдено")
+            raise HTTPException(404, "Not found")
     except DoesNotExist:
-        raise HTTPException(404, "Не найдено")
+        raise HTTPException(404, "Not found")
 
     return to_response(block)
 
