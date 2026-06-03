@@ -11,9 +11,11 @@ class Status(BaseModel):
     ACTIVE_STATUS_ID = 1
     CANCELLED_STATUS_ID = 2
     PENDING_STATUS_ID = 3
+
     id = IntegerField(primary_key=True)
     name = CharField(max_length=20, unique=True)
     description = CharField(max_length=100)
+    is_active = BooleanField(default=True)          
 
 class RoomBlock(BaseModel):
     id = AutoField()
@@ -49,19 +51,18 @@ def init_db(close_after: bool = False):
     try:
         db.connect(reuse_if_open=True)
         db.create_tables([Status, RoomBlock], safe=True)
-        
+
         statuses = [
             (1, 'active', 'Active block'),
             (2, 'cancelled', 'Cancelled block'),
             (3, 'pending', 'Pending confirmation'),
         ]
-      
         for status_id, name, description in statuses:
-            Status.insert(id=status_id, name=name, description=description).on_conflict(
+            Status.insert(id=status_id, name=name, description=description, is_active=True).on_conflict(
                 conflict_target=[Status.id],
-                preserve=[]
+                update={'name': name, 'description': description, 'is_active': True}
             ).execute()
-            
+
         if close_after:
             db.close()
     except Exception as e:
