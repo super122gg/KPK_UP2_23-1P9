@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field, field_validator
 from models import RoomBlock, Status, db
 
 
+def to_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 class RoomBlockCreate(BaseModel):
     room_id: int = Field(..., ge=1)
     event_id: int = Field(..., ge=1)
@@ -18,14 +24,14 @@ class RoomBlockCreate(BaseModel):
 
     @field_validator('start_datetime')
     def validate_start_not_past(cls, v):
-        if v.tzinfo is None:
-            v = v.replace(tzinfo=timezone.utc)
+        v = to_utc(v)
         if v <= datetime.now(timezone.utc):
             raise ValueError('start_datetime cannot be in the past')
         return v
 
     @field_validator('end_datetime')
     def validate_end_after_start(cls, v, info):
+        v = to_utc(v)
         start = info.data.get('start_datetime')
         if start and v <= start:
             raise ValueError('end_datetime must be greater than start_datetime')
@@ -41,8 +47,7 @@ class RoomBlockUpdate(BaseModel):
     @field_validator('start_datetime')
     def validate_start_not_past(cls, v):
         if v is not None:
-            if v.tzinfo is None:
-                v = v.replace(tzinfo=timezone.utc)
+            v = to_utc(v)
             if v <= datetime.now(timezone.utc):
                 raise ValueError('start_datetime cannot be in the past')
         return v
@@ -50,6 +55,7 @@ class RoomBlockUpdate(BaseModel):
     @field_validator('end_datetime')
     def validate_end_after_start(cls, v, info):
         if v is not None:
+            v = to_utc(v)
             start = info.data.get('start_datetime')
             if start and v <= start:
                 raise ValueError('end_datetime must be greater than start_datetime')
@@ -109,13 +115,9 @@ def to_response(block: RoomBlock) -> RoomBlockResponse:
     )
 
 
-def validate_not_past(dt: datetime) -> bool:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt > datetime.now(timezone.utc)
-
-
 def check_duplicate(room_id: int, start: datetime, end: datetime, exclude_id: int = None) -> bool:
+    start = to_utc(start)
+    end = to_utc(end)
     query = RoomBlock.select().where(
         (RoomBlock.is_deleted == False) &
         (RoomBlock.room_id == room_id) &
@@ -128,6 +130,8 @@ def check_duplicate(room_id: int, start: datetime, end: datetime, exclude_id: in
 
 
 def check_overlap(room_id: int, start: datetime, end: datetime, status_id: int, exclude_id: int = None) -> bool:
+    start = to_utc(start)
+    end = to_utc(end)
     query = RoomBlock.select().where(
         (RoomBlock.is_deleted == False) &
         (RoomBlock.room_id == room_id) &
@@ -147,12 +151,7 @@ async def create_block(block: RoomBlockCreate):
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
 
-    if not validate_not_past(block.start_datetime):
-        raise HTTPException(400, "start_datetime cannot be in the past")
-
-    if block.end_datetime <= block.start_datetime:
-        raise HTTPException(400, "end_datetime must be greater than start_datetime")
-
+    # Валидация дат уже выполнена Pydantic, повторно не проверяем
     if check_duplicate(block.room_id, block.start_datetime, block.end_datetime):
         raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
 
@@ -189,17 +188,18 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
     new_end = data.get("end_datetime", block.end_datetime)
     new_status_id = data.get("status_id", block.status_id)
 
-    if new_start is not None and not validate_not_past(new_start):
-        raise HTTPException(400, "start_datetime cannot be in the past")
+    # Валидация дат уже выполнена Pydantic (если они переданы)
+    # Дополнительная проверка только для случая, когда start/end не переданы, но нужно проверить текущие
+    if "start_datetime" not in data and "end_datetime" not in data:
+        # Если даты не меняются, проверять их не нужно
+        pass
+    else:
+        # Проверка на дубликат и пересечение с новыми датами
+        if check_duplicate(block.room_id, new_start, new_end, block_id):
+            raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
 
-    if new_end <= new_start:
-        raise HTTPException(400, "end_datetime must be greater than start_datetime")
-
-    if check_duplicate(block.room_id, new_start, new_end, block_id):
-        raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
-
-    if check_overlap(block.room_id, new_start, new_end, new_status_id, block_id):
-        raise HTTPException(409, "Time overlap with existing active block")
+        if check_overlap(block.room_id, new_start, new_end, new_status_id, block_id):
+            raise HTTPException(409, "Time overlap with existing active block")
 
     for k, v in data.items():
         setattr(block, k, v)
@@ -217,10 +217,10 @@ async def delete_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
     except DoesNotExist:
-        return DeleteResponse(success=False)
+        raise HTTPException(404, "Block not found")
 
     if block.is_deleted:
-        return DeleteResponse(success=False)
+        raise HTTPException(404, "Block already deleted")
 
     block.is_deleted = True
     block.updated_at = datetime.now(timezone.utc)
@@ -257,6 +257,12 @@ async def get_blocks(
 
     if status_id:
         query = query.where(RoomBlock.status_id == status_id)
+
+    # Приводим границы к UTC для корректного сравнения
+    if date_from:
+        date_from = to_utc(date_from)
+    if date_to:
+        date_to = to_utc(date_to)
 
     if date_from and date_to:
         query = query.where(
