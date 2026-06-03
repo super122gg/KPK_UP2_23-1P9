@@ -142,11 +142,14 @@ def check_duplicate(
     end,
     exclude_id=None
 ):
+    start_utc = to_utc(start)
+    end_utc = to_utc(end)
+
     query = RoomBlock.select().where(
         (RoomBlock.is_deleted == False) &
         (RoomBlock.room_id == room_id) &
-        (RoomBlock.start_datetime == start) &
-        (RoomBlock.end_datetime == end)
+        (RoomBlock.start_datetime == start_utc) &
+        (RoomBlock.end_datetime == end_utc)
     )
 
     if exclude_id:
@@ -163,12 +166,15 @@ def check_overlap(
     end,
     exclude_id=None
 ):
+    start_utc = to_utc(start)
+    end_utc = to_utc(end)
+
     query = RoomBlock.select().where(
         (RoomBlock.is_deleted == False) &
         (RoomBlock.room_id == room_id) &
         (RoomBlock.status_id != Status.CANCELLED_STATUS_ID) &
-        (RoomBlock.start_datetime < end) &
-        (RoomBlock.end_datetime > start)
+        (RoomBlock.start_datetime < end_utc) &
+        (RoomBlock.end_datetime > start_utc)
     )
 
     if exclude_id:
@@ -278,6 +284,24 @@ async def update_block(
             block.status_id
         )
 
+        # Проверка корректности итоговых дат (если хотя бы одна дата изменена)
+        if "start_datetime" in data or "end_datetime" in data:
+            # Приводим к UTC для сравнения
+            new_start_utc = to_utc(new_start)
+            new_end_utc = to_utc(new_end)
+
+            if new_end_utc <= new_start_utc:
+                raise HTTPException(
+                    400,
+                    "end_datetime must be greater than start_datetime"
+                )
+
+            if "start_datetime" in data and new_start_utc <= datetime.now(timezone.utc):
+                raise HTTPException(
+                    400,
+                    "start_datetime cannot be in the past"
+                )
+
         if check_duplicate(
             block.room_id,
             new_start,
@@ -354,12 +378,7 @@ async def delete_block(block_id: int):
         return DeleteResponse(
             success=False
         )
-
-    except IntegrityError:
-        raise HTTPException(
-            409,
-            "Database conflict"
-        )
+    # Удалён блок IntegrityError – для операции удаления не требуется
 
 
 @app.get(
@@ -420,20 +439,31 @@ async def get_blocks(
             RoomBlock.status_id == status_id
         )
 
-    if date_from and date_to:
+    # Приведение границ к UTC для корректного сравнения
+    if date_from:
+        date_from_utc = to_utc(date_from)
+    else:
+        date_from_utc = None
+
+    if date_to:
+        date_to_utc = to_utc(date_to)
+    else:
+        date_to_utc = None
+
+    if date_from_utc and date_to_utc:
         query = query.where(
-            RoomBlock.start_datetime < date_to,
-            RoomBlock.end_datetime > date_from
+            RoomBlock.start_datetime < date_to_utc,
+            RoomBlock.end_datetime > date_from_utc
         )
 
-    elif date_from:
+    elif date_from_utc:
         query = query.where(
-            RoomBlock.end_datetime > date_from
+            RoomBlock.end_datetime > date_from_utc
         )
 
-    elif date_to:
+    elif date_to_utc:
         query = query.where(
-            RoomBlock.start_datetime < date_to
+            RoomBlock.start_datetime < date_to_utc
         )
 
     query = query.order_by(
