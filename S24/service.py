@@ -72,7 +72,7 @@ class RoomBlockResponse(BaseModel):
     end_datetime: datetime
     status_id: int
     comment: str
-    is_deleted: bool
+    is_active: bool
     created_at: datetime
     updated_at: datetime
 
@@ -115,7 +115,7 @@ def to_response(block: RoomBlock):
         end_datetime=block.end_datetime,
         status_id=block.status_id,
         comment=block.comment,
-        is_deleted=block.is_deleted,
+        is_active=block.is_active,
         created_at=block.created_at,
         updated_at=block.updated_at,
     )
@@ -123,7 +123,7 @@ def to_response(block: RoomBlock):
 
 def check_duplicate(room_id, start, end, exclude_id=None):
     query = RoomBlock.select().where(
-        (RoomBlock.is_deleted == False)
+        (RoomBlock.is_active == True)
         & (RoomBlock.room_id == room_id)
         & (RoomBlock.start_datetime == start)
         & (RoomBlock.end_datetime == end)
@@ -135,7 +135,7 @@ def check_duplicate(room_id, start, end, exclude_id=None):
 
 def check_overlap(room_id, start, end, exclude_id=None):
     query = RoomBlock.select().where(
-        (RoomBlock.is_deleted == False)
+        (RoomBlock.is_active == True)
         & (RoomBlock.room_id == room_id)
         & (RoomBlock.status_id != Status.CANCELLED_STATUS_ID)
         & (RoomBlock.start_datetime < end)
@@ -183,12 +183,11 @@ async def create_block(block: RoomBlockCreate):
 async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         block = RoomBlock.get_by_id(block_id)
-        if block.is_deleted:
+        if not block.is_active:
             raise HTTPException(404, "Block not found")
 
         data = block_data.model_dump(exclude_unset=True)
 
-        # Явная проверка на пустой запрос обновления
         if not data:
             return to_response(block)
 
@@ -206,9 +205,7 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         new_end_utc = to_utc(new_end)
 
         if new_end_utc <= new_start_utc:
-            raise HTTPException(
-                400, "end_datetime must be greater than start_datetime"
-            )
+            raise HTTPException(400, "end_datetime must be greater than start_datetime")
         if new_start_utc <= datetime.now(timezone.utc):
             raise HTTPException(400, "start_datetime cannot be in the past")
 
@@ -237,13 +234,12 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
 async def delete_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
-        if block.is_deleted:
+        if not block.is_active:
             return DeleteResponse(success=False)
-        block.is_deleted = True
+        block.is_active = False
         block.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        # Соответствует doc.md и принципам идемпотентности soft delete
         return DeleteResponse(success=False)
 
 
