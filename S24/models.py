@@ -1,3 +1,4 @@
+python
 from datetime import datetime, timezone
 from peewee import *
 
@@ -38,6 +39,12 @@ class RoomBlock(BaseModel):
 
     created_at = DateTimeField(default=lambda: datetime.now(timezone.utc))
     updated_at = DateTimeField(default=lambda: datetime.now(timezone.utc))
+
+    class Meta:
+        constraints = [
+            Check('end_datetime > start_datetime'),
+            SQL('UNIQUE(room_id, start_datetime, end_datetime)')
+        ]
 
     @classmethod
     def active(cls):
@@ -148,16 +155,16 @@ def init_db(close_after: bool = False):
     db.create_tables([Status, RoomBlock], safe=True)
 
     statuses = (
-        (1, 'active', 'Active block'),
-        (2, 'cancelled', 'Cancelled block'),
-        (3, 'pending', 'Pending confirmation'),
+        (1, 'active', 'Активная блокировка'),
+        (2, 'cancelled', 'Отменённая блокировка'),
+        (3, 'pending', 'Ожидает подтверждения'),
     )
 
     for status_id, name, description in statuses:
-        Status.get_or_create(
-            id=status_id,
-            defaults={'name': name, 'description': description}
-        )
+        # Обновляем или вставляем, чтобы избежать конфликтов
+        Status.replace(
+            id=status_id, name=name, description=description
+        ).execute()
 
     if close_after:
         db.close()
