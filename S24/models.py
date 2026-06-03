@@ -15,7 +15,7 @@ class Status(BaseModel):
     PENDING_STATUS_ID = 3
 
     id = IntegerField(primary_key=True)
-    name = CharField(max_length=20)          # unique=True удалено
+    name = CharField(max_length=20, unique=True)  # уникальность имени статуса
     description = CharField(max_length=100)
 
 
