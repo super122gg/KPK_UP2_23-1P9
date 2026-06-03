@@ -45,9 +45,25 @@ class RoomBlock(BaseModel):
             Check('end_datetime > start_datetime')
         ]
 
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.now(timezone.utc)
+        return super().save(*args, **kwargs)
+
     @classmethod
     def active(cls):
         return cls.select().where(cls.is_deleted == False)
+
+    @classmethod
+    def is_unique_active(cls, room_id: int, start: datetime, end: datetime, exclude_id: int = None) -> bool:
+        query = cls.select().where(
+            (cls.is_deleted == False) &
+            (cls.room_id == room_id) &
+            (cls.start_datetime == start) &
+            (cls.end_datetime == end)
+        )
+        if exclude_id:
+            query = query.where(cls.id != exclude_id)
+        return not query.exists()
 
 
 def init_db(close_after: bool = False):
