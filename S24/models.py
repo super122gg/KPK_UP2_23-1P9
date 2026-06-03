@@ -23,10 +23,11 @@ class RoomBlock(BaseModel):
     room_id = IntegerField(null=False, constraints=[Check('room_id > 0')])
     event_id = IntegerField(null=False, constraints=[Check('event_id > 0')])
 
-    status_id = IntegerField(
+    status = ForeignKeyField(
+        Status,
+        backref='blocks',
         null=False,
-        default=Status.ACTIVE_STATUS_ID,
-        constraints=[Check('status_id > 0')]
+        default=Status.ACTIVE_STATUS_ID
     )
 
     start_datetime = DateTimeField()
@@ -97,7 +98,7 @@ class RoomBlock(BaseModel):
     def save(self, *args, **kwargs):
         now = self._now()
 
-        if self.start_datetime and not self.validate_not_past(self.start_datetime):
+        if not self.validate_not_past(self.start_datetime):
             raise ValueError("start_datetime не может быть в прошлом")
 
         if self.end_datetime <= self.start_datetime:
@@ -168,3 +169,7 @@ def init_db(close_after: bool = False):
 
     if close_after:
         db.close()
+
+
+if __name__ == "__main__":
+    init_db(close_after=True)
