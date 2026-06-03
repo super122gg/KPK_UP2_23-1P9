@@ -5,9 +5,9 @@ from fastapi import FastAPI, HTTPException, Query
 from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field, field_validator
 
-from models import RoomBlock, Status, db, init_db
+from models import RoomBlock, Status, db
 
-init_db()
+# Инициализация БД не вызывается здесь (только в models.py)
 
 
 class RoomBlockCreate(BaseModel):
@@ -74,6 +74,15 @@ class RoomBlockResponse(BaseModel):
         from_attributes = True
 
 
+class StatusResponse(BaseModel):
+    id: int
+    name: str
+    description: str
+
+    class Config:
+        from_attributes = True
+
+
 class DeleteResponse(BaseModel):
     success: bool
 
@@ -123,6 +132,8 @@ async def create_block(block: RoomBlockCreate):
 async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         block = RoomBlock.get_by_id(block_id)
+        # Разрешено изменять даже удалённые записи? По логике - да, но в ТЗ не сказано.
+        # Оставим как есть: нельзя изменять удалённые.
         if block.is_deleted:
             raise HTTPException(404, "Block not found")
     except DoesNotExist:
@@ -159,11 +170,9 @@ async def delete_block(block_id: int):
 async def get_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
-        if block.is_deleted:
-            raise HTTPException(404, "Not found")
+        # Возвращаем даже удалённые записи (как в doc.md)
     except DoesNotExist:
-        raise HTTPException(404, "Not found")
-
+        raise HTTPException(404, "Block not found")
     return to_response(block)
 
 
@@ -177,7 +186,8 @@ async def get_blocks(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    query = RoomBlock.select().where(RoomBlock.is_deleted == False)
+    # Возвращаем все записи, включая удалённые
+    query = RoomBlock.select()
 
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
@@ -201,6 +211,20 @@ async def get_blocks(
     query = query.order_by(RoomBlock.id).limit(limit).offset(offset)
 
     return [to_response(b) for b in query]
+
+
+@app.get("/statuses/", response_model=List[StatusResponse])
+async def get_statuses():
+    return list(Status.select())
+
+
+@app.get("/statuses/{status_id}", response_model=StatusResponse)
+async def get_status(status_id: int):
+    try:
+        status = Status.get_by_id(status_id)
+    except DoesNotExist:
+        raise HTTPException(404, "Status not found")
+    return status
 
 
 @app.get("/health")
