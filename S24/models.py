@@ -29,16 +29,14 @@ class RoomBlock(BaseModel):
     start_datetime = DateTimeField()
     end_datetime = DateTimeField()
     comment = CharField(max_length=500, default='')
-    is_deleted = BooleanField(default=False)
+    is_active = BooleanField(default=True)
     created_at = DateTimeField(default=lambda: datetime.now(timezone.utc))
     updated_at = DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     class Meta:
-
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-
         indexes = [
             (('room_id', 'start_datetime', 'end_datetime'), False),
         ]
