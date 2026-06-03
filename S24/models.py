@@ -34,9 +34,11 @@ class RoomBlock(BaseModel):
     updated_at = DateTimeField(default=lambda: datetime.now(timezone.utc))
 
     class Meta:
+
         constraints = [
-            Check('(status_id = 2) OR (end_datetime > start_datetime)')
+            Check('end_datetime > start_datetime')
         ]
+
         indexes = [
             (('room_id', 'start_datetime', 'end_datetime'), False),
         ]
@@ -49,16 +51,19 @@ def init_db(close_after: bool = False):
     try:
         db.connect(reuse_if_open=True)
         db.create_tables([Status, RoomBlock], safe=True)
+        
         statuses = [
             (1, 'active', 'Active block'),
             (2, 'cancelled', 'Cancelled block'),
             (3, 'pending', 'Pending confirmation'),
         ]
+      
         for status_id, name, description in statuses:
             Status.insert(id=status_id, name=name, description=description).on_conflict(
                 conflict_target=[Status.id],
                 preserve=[]
             ).execute()
+            
         if close_after:
             db.close()
     except Exception as e:
