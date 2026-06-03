@@ -23,7 +23,7 @@ class RoomBlock(BaseModel):
     room_id = IntegerField(null=False, constraints=[Check('room_id > 0')])
     event_id = IntegerField(null=False, constraints=[Check('event_id > 0')])
 
-    status = ForeignKeyField(
+    status_id = ForeignKeyField(
         Status,
         backref='blocks',
         null=False,
@@ -97,12 +97,13 @@ class RoomBlock(BaseModel):
 
     def save(self, *args, **kwargs):
         now = self._now()
+        self.updated_at = now
 
         if not self.validate_not_past(self.start_datetime):
-            raise ValueError("start_datetime не может быть в прошлом")
+            raise ValueError("start_datetime cannot be in the past")
 
         if self.end_datetime <= self.start_datetime:
-            raise ValueError("end_datetime должен быть позже start_datetime")
+            raise ValueError("end_datetime must be greater than start_datetime")
 
         if self.has_duplicate(
             self.room_id,
@@ -110,7 +111,7 @@ class RoomBlock(BaseModel):
             self.end_datetime,
             self.id
         ):
-            raise ValueError("Дубликат блокировки")
+            raise ValueError("Duplicate block")
 
         if (
             not self.is_deleted and
@@ -122,13 +123,9 @@ class RoomBlock(BaseModel):
                 self.id
             )
         ):
-            raise ValueError("Пересечение интервалов")
+            raise ValueError("Time overlap")
 
-        result = super().save(*args, **kwargs)
-
-        RoomBlock.update(updated_at=now).where(RoomBlock.id == self.id).execute()
-
-        return result
+        return super().save(*args, **kwargs)
 
     @classmethod
     def soft_delete(cls, block_id: int) -> bool:
@@ -145,20 +142,15 @@ class RoomBlock(BaseModel):
         block.save()
         return True
 
-    class Meta:
-        constraints = [
-            SQL('UNIQUE(room_id, start_datetime, end_datetime)')
-        ]
-
 
 def init_db(close_after: bool = False):
     db.connect(reuse_if_open=True)
     db.create_tables([Status, RoomBlock], safe=True)
 
     statuses = (
-        (1, 'active', 'Активная блокировка'),
-        (2, 'cancelled', 'Отменённая блокировка'),
-        (3, 'pending', 'Ожидает подтверждения'),
+        (1, 'active', 'Active block'),
+        (2, 'cancelled', 'Cancelled block'),
+        (3, 'pending', 'Pending confirmation'),
     )
 
     for status_id, name, description in statuses:
