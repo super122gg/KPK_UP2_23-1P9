@@ -151,7 +151,6 @@ async def create_block(block: RoomBlockCreate):
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
 
-    # Валидация дат уже выполнена Pydantic, повторно не проверяем
     if check_duplicate(block.room_id, block.start_datetime, block.end_datetime):
         raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
 
@@ -188,13 +187,10 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
     new_end = data.get("end_datetime", block.end_datetime)
     new_status_id = data.get("status_id", block.status_id)
 
-    # Валидация дат уже выполнена Pydantic (если они переданы)
-    # Дополнительная проверка только для случая, когда start/end не переданы, но нужно проверить текущие
-    if "start_datetime" not in data and "end_datetime" not in data:
-        # Если даты не меняются, проверять их не нужно
-        pass
-    else:
-        # Проверка на дубликат и пересечение с новыми датами
+    dates_changed = ("start_datetime" in data or "end_datetime" in data)
+    status_changed = ("status_id" in data)
+
+    if dates_changed or status_changed:
         if check_duplicate(block.room_id, new_start, new_end, block_id):
             raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
 
@@ -217,10 +213,10 @@ async def delete_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
     except DoesNotExist:
-        raise HTTPException(404, "Block not found")
+        return DeleteResponse(success=False)
 
     if block.is_deleted:
-        raise HTTPException(404, "Block already deleted")
+        return DeleteResponse(success=False)
 
     block.is_deleted = True
     block.updated_at = datetime.now(timezone.utc)
@@ -257,8 +253,6 @@ async def get_blocks(
 
     if status_id:
         query = query.where(RoomBlock.status_id == status_id)
-
-    # Приводим границы к UTC для корректного сравнения
     if date_from:
         date_from = to_utc(date_from)
     if date_to:
@@ -281,7 +275,7 @@ async def get_blocks(
 
 @app.get("/statuses/", response_model=List[StatusResponse])
 async def get_statuses():
-    return list(Status.select())
+    return [StatusResponse.model_validate(s) for s in Status.select()]
 
 
 @app.get("/statuses/{status_id}", response_model=StatusResponse)
@@ -290,9 +284,10 @@ async def get_status(status_id: int):
         status = Status.get_by_id(status_id)
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
-    return status
+    return StatusResponse.model_validate(status)
 
 
 @app.get("/health")
 async def health():
+
     return {"status": "ok"}
