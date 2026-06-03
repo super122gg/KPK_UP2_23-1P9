@@ -20,7 +20,7 @@ erDiagram
         datetime end_datetime
         int status_id FK
         string comment
-        boolean is_deleted "default false"
+        boolean is_active "default true"
         datetime created_at "auto now"
         datetime updated_at "auto now on update"
     }
@@ -30,7 +30,7 @@ erDiagram
 Примечания:
 - `room_id` и `event_id` – внешние идентификаторы (на уровне бизнес-логики), ссылаются на данные в других микросервисах (Room Service и сервис событий). В диаграмме они не помечены как `FK`, так как это не реляционные связи в рамках текущей БД.
 - `status_id` – внешний ключ к таблице `Status` (связь `RoomBlock.status_id` → `Status.id`).
-- `is_deleted` по умолчанию `false`, `created_at` и `updated_at` заполняются автоматически.
+- `is_active` по умолчанию `true` (активная запись), `created_at` и `updated_at` заполняются автоматически.
 
 ## Функционал сервиса
 - Добавить `RoomBlock`
@@ -75,7 +75,7 @@ erDiagram
 | `end_datetime` | DateTime |
 | `status_id` | Integer |
 | `comment` | String |
-| `is_deleted` | Boolean |
+| `is_active` | Boolean |
 | `created_at` | DateTime |
 | `updated_at` | DateTime |
 
@@ -118,10 +118,10 @@ erDiagram
 ```json
 {"success": true}
 ```
-- `true`, если запись была помечена удалённой (`is_deleted = true`);
+- `true`, если запись была помечена удалённой (`is_active = false`);
 - `false`, если запись не найдена или уже удалена.
 
-Запись физически не удаляется, используется поле `is_deleted`.
+Запись физически не удаляется, используется поле `is_active`.
 
 ## Получить RoomBlock по ID
 | Метод | Ссылка |
@@ -137,7 +137,7 @@ erDiagram
 **Успешный ответ:** `200 OK`
 
 **Возвращаемые данные** (те же поля, что при создании).  
-Запись возвращается независимо от значения `is_deleted` (включая удалённые). Клиент может видеть флаг `is_deleted`.
+Запись возвращается независимо от значения `is_active` (включая удалённые). Клиент может видеть флаг `is_active`.
 
 ## Получить список RoomBlock по заданным параметрам
 | Метод | Ссылка |
@@ -159,7 +159,7 @@ erDiagram
 | `offset` | Смещение | Нет | Integer | ≥0, по умолчанию 0 |
 
 Если заданы оба параметра `date_from` и `date_to`, возвращаются блокировки, пересекающиеся с интервалом `[date_from, date_to)` (полуоткрытый интервал).  
-**Возвращаемый список** – массив объектов с теми же полями, что и при создании (включая записи с `is_deleted = true`).
+**Возвращаемый список** – массив объектов с теми же полями, что и при создании (включая записи с `is_active = false`).
 
 ## Получить список статусов
 | Метод | Ссылка |
