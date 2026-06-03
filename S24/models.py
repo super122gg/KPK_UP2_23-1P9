@@ -8,7 +8,6 @@ class BaseModel(Model):
     class Meta:
         database = db
 
-
 class Status(BaseModel):
     ACTIVE_STATUS_ID = 1
     CANCELLED_STATUS_ID = 2
