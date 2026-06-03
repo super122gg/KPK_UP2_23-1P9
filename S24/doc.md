@@ -9,28 +9,33 @@
 erDiagram
     Status {
         int id PK
-        string name
+        string name "unique"
         string description
     }
     RoomBlock {
         int id PK
-        int room_id "внешний ID, ссылка на Room Service"
-        int event_id "внешний ID, ссылка на сервис событий"
+        int room_id "FK to Room Service, > 0"
+        int event_id "FK to Event Service, > 0"
+        int status_id FK "> 0, default 1"
         datetime start_datetime
-        datetime end_datetime
-        int status_id FK
-        string comment
-        boolean is_deleted "default false"
-        datetime created_at "auto now"
-        datetime updated_at "auto now on update"
+        datetime end_datetime "must be > start_datetime"
+        string comment "max 500 chars, default ''"
+        boolean is_deleted "default false, soft delete flag"
+        datetime created_at "auto-generated UTC"
+        datetime updated_at "auto-updated UTC on save"
     }
     Status ||--o{ RoomBlock : "status_id = id"
 ```
 
-Примечания:
-- `room_id` и `event_id` – внешние идентификаторы (на уровне бизнес-логики), ссылаются на данные в других микросервисах (Room Service и сервис событий). В диаграмме они не помечены как `FK`, так как это не реляционные связи в рамках текущей БД.
-- `status_id` – внешний ключ к таблице `Status` (связь `RoomBlock.status_id` → `Status.id`).
-- `is_deleted` по умолчанию `false`, `created_at` и `updated_at` заполняются автоматически.
+**Примечания к ограничениям БД:**
+
+- Поле `status_id` имеет ограничение `CHECK (status_id > 0)`.
+
+- Поля `room_id`, `event_id` имеют ограничения `CHECK (... > 0)`.
+
+- Условие `end_datetime > start_datetime` enforced на уровне БД.
+
+- Проверка `start_datetime NOT IN PAST` и уникальность `(room_id, start_datetime, end_datetime)` для активных записей реализованы на уровне API (Pydantic + бизнес-логика), так как SQLite не поддерживает данные ограничения нативно.
 
 ## Функционал сервиса
 - Добавить `RoomBlock`
