@@ -201,7 +201,7 @@ async def create_block(block: RoomBlockCreate):
         ):
             raise HTTPException(
                 409,
-                "Duplicate block"
+                "Duplicate block (room_id, start_datetime, end_datetime)"
             )
 
         if (
@@ -215,7 +215,7 @@ async def create_block(block: RoomBlockCreate):
         ):
             raise HTTPException(
                 409,
-                "Time overlap"
+                "Time overlap with existing active block"
             )
 
         new_block = RoomBlock.create(
@@ -265,9 +265,10 @@ async def update_block(
         )
 
         if "status_id" in data:
-            Status.get_by_id(
-                data["status_id"]
-            )
+            try:
+                Status.get_by_id(data["status_id"])
+            except DoesNotExist:
+                raise HTTPException(404, "Status not found")
 
         new_start = data.get(
             "start_datetime",
@@ -284,9 +285,7 @@ async def update_block(
             block.status_id
         )
 
-        # Проверка корректности итоговых дат (если хотя бы одна дата изменена)
         if "start_datetime" in data or "end_datetime" in data:
-            # Приводим к UTC для сравнения
             new_start_utc = to_utc(new_start)
             new_end_utc = to_utc(new_end)
 
@@ -310,7 +309,7 @@ async def update_block(
         ):
             raise HTTPException(
                 409,
-                "Duplicate block"
+                "Duplicate block (room_id, start_datetime, end_datetime)"
             )
 
         if (
@@ -325,7 +324,7 @@ async def update_block(
         ):
             raise HTTPException(
                 409,
-                "Time overlap"
+                "Time overlap with existing active block"
             )
 
         for k, v in data.items():
@@ -338,7 +337,7 @@ async def update_block(
     except DoesNotExist:
         raise HTTPException(
             404,
-            "Not found"
+            "Block not found"
         )
 
     except ValueError as e:
@@ -378,7 +377,6 @@ async def delete_block(block_id: int):
         return DeleteResponse(
             success=False
         )
-    # Удалён блок IntegrityError – для операции удаления не требуется
 
 
 @app.get(
@@ -410,13 +408,18 @@ async def get_blocks(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
-    if (
-        date_from is not None
-        and
-        date_to is not None
-        and
-        date_from >= date_to
-    ):
+    # Приводим date_from и date_to к UTC перед сравнением
+    if date_from is not None:
+        date_from_utc = to_utc(date_from)
+    else:
+        date_from_utc = None
+
+    if date_to is not None:
+        date_to_utc = to_utc(date_to)
+    else:
+        date_to_utc = None
+
+    if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
         raise HTTPException(
             400,
             "date_from must be less than date_to"
@@ -438,17 +441,6 @@ async def get_blocks(
         query = query.where(
             RoomBlock.status_id == status_id
         )
-
-    # Приведение границ к UTC для корректного сравнения
-    if date_from:
-        date_from_utc = to_utc(date_from)
-    else:
-        date_from_utc = None
-
-    if date_to:
-        date_to_utc = to_utc(date_to)
-    else:
-        date_to_utc = None
 
     if date_from_utc and date_to_utc:
         query = query.where(
