@@ -162,9 +162,9 @@ erDiagram
 ## Справочник Status (инициализация БД)
 | id | name | description |
 |---|---|---|
-| 1 | active | Активная блокировка |
-| 2 | cancelled | Отменённая блокировка |
-| 3 | pending | Ожидает подтверждения |
+| 1 | active | Active block |
+| 2 | cancelled | Cancelled block |
+| 3 | pending | Pending confirmation |
 
 ## Точки входа REST API
 | Метод | Эндпоинт | Описание |
