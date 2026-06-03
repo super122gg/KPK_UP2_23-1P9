@@ -2,12 +2,11 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from peewee import DoesNotExist
+from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field, field_validator
 
 from models import RoomBlock, Status, db, init_db
 
-# Инициализация БД при старте сервера
 init_db()
 
 
@@ -114,6 +113,8 @@ async def create_block(block: RoomBlockCreate):
         new_block = RoomBlock.create(**block.model_dump())
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except IntegrityError as e:
+        raise HTTPException(409, "Data conflict (duplicate or overlap)")
 
     return to_response(new_block)
 
@@ -142,6 +143,8 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         block.save()
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except IntegrityError as e:
+        raise HTTPException(409, "Data conflict")
 
     return to_response(block)
 
