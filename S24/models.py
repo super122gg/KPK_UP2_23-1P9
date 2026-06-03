@@ -1,4 +1,3 @@
-python
 from datetime import datetime, timezone
 from peewee import *
 
