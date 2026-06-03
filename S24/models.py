@@ -20,6 +20,7 @@ class Status(BaseModel):
 
 
 class RoomBlock(BaseModel):
+    id = AutoField()
     room_id = IntegerField(null=False, constraints=[Check('room_id > 0')])
     event_id = IntegerField(null=False, constraints=[Check('event_id > 0')])
 
@@ -41,8 +42,7 @@ class RoomBlock(BaseModel):
 
     class Meta:
         constraints = [
-            Check('end_datetime > start_datetime'),
-            SQL('UNIQUE(room_id, start_datetime, end_datetime)')
+            Check('end_datetime > start_datetime')
         ]
 
     @classmethod
@@ -154,13 +154,12 @@ def init_db(close_after: bool = False):
     db.create_tables([Status, RoomBlock], safe=True)
 
     statuses = (
-        (1, 'active', 'Активная блокировка'),
-        (2, 'cancelled', 'Отменённая блокировка'),
-        (3, 'pending', 'Ожидает подтверждения'),
+        (1, 'active', 'Active block'),
+        (2, 'cancelled', 'Cancelled block'),
+        (3, 'pending', 'Pending confirmation'),
     )
 
     for status_id, name, description in statuses:
-        # Обновляем или вставляем, чтобы избежать конфликтов
         Status.replace(
             id=status_id, name=name, description=description
         ).execute()
