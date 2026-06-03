@@ -46,10 +46,8 @@ class RoomBlock(BaseModel):
         ]
 
     def save(self, *args, **kwargs):
-        # Обновляем updated_at при каждом сохранении
         self.updated_at = datetime.now(timezone.utc)
 
-        # Проверка: start_datetime не в прошлом
         now = datetime.now(timezone.utc)
         if self.start_datetime.tzinfo is None:
             start = self.start_datetime.replace(tzinfo=timezone.utc)
@@ -58,7 +56,6 @@ class RoomBlock(BaseModel):
         if start <= now:
             raise ValueError("start_datetime cannot be in the past")
 
-        # Проверка: уникальность комбинации (room_id, start_datetime, end_datetime) для активных записей
         duplicate_query = RoomBlock.select().where(
             (RoomBlock.is_deleted == False) &
             (RoomBlock.id != self.id) &
@@ -69,7 +66,6 @@ class RoomBlock(BaseModel):
         if duplicate_query.exists():
             raise ValueError("Duplicate block (room_id, start_datetime, end_datetime)")
 
-        # Проверка: пересечение интервалов для активных блокировок (кроме cancelled)
         if not self.is_deleted and self.status_id != Status.CANCELLED_STATUS_ID:
             overlap_query = RoomBlock.select().where(
                 (RoomBlock.is_deleted == False) &
@@ -101,7 +97,6 @@ def init_db(close_after: bool = False):
         )
 
         for status_id, name, description in statuses:
-            # Используем replace для обновления существующих записей
             Status.replace(id=status_id, name=name, description=description).execute()
 
         if close_after:
