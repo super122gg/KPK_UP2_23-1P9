@@ -86,6 +86,9 @@ class StatusResponse(BaseModel):
 class DeleteResponse(BaseModel):
     success: bool
 
+class HealthResponse(BaseModel):
+    status: str
+
 app = FastAPI(title="Room Availability Service", version="1.0.0")
 
 @app.on_event("shutdown")
@@ -158,8 +161,6 @@ async def create_block(block: RoomBlockCreate):
         return to_response(new_block)
     except IntegrityError:
         raise HTTPException(409, "Database conflict")
-    except ValueError as e:
-        raise HTTPException(400, str(e))
 
 @app.patch("/blocks/{block_id}", response_model=RoomBlockResponse)
 async def update_block(block_id: int, block_data: RoomBlockUpdate):
@@ -196,14 +197,12 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
 
         for k, v in data.items():
             setattr(block, k, v)
-        
+
         block.save()
         return to_response(block)
 
     except DoesNotExist:
         raise HTTPException(404, "Block not found")
-    except ValueError as e:
-        raise HTTPException(400, str(e))
     except IntegrityError:
         raise HTTPException(409, "Database conflict")
 
@@ -277,6 +276,6 @@ async def get_status(status_id: int):
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health():
     return {"status": "ok"}
