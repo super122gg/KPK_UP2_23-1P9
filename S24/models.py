@@ -46,24 +46,47 @@ class RoomBlock(BaseModel):
         ]
 
     def save(self, *args, **kwargs):
+        # Обновляем updated_at при каждом сохранении
         self.updated_at = datetime.now(timezone.utc)
+
+        # Проверка: start_datetime не в прошлом
+        now = datetime.now(timezone.utc)
+        if self.start_datetime.tzinfo is None:
+            start = self.start_datetime.replace(tzinfo=timezone.utc)
+        else:
+            start = self.start_datetime.astimezone(timezone.utc)
+        if start <= now:
+            raise ValueError("start_datetime cannot be in the past")
+
+        # Проверка: уникальность комбинации (room_id, start_datetime, end_datetime) для активных записей
+        duplicate_query = RoomBlock.select().where(
+            (RoomBlock.is_deleted == False) &
+            (RoomBlock.id != self.id) &
+            (RoomBlock.room_id == self.room_id) &
+            (RoomBlock.start_datetime == self.start_datetime) &
+            (RoomBlock.end_datetime == self.end_datetime)
+        )
+        if duplicate_query.exists():
+            raise ValueError("Duplicate block (room_id, start_datetime, end_datetime)")
+
+        # Проверка: пересечение интервалов для активных блокировок (кроме cancelled)
+        if not self.is_deleted and self.status_id != Status.CANCELLED_STATUS_ID:
+            overlap_query = RoomBlock.select().where(
+                (RoomBlock.is_deleted == False) &
+                (RoomBlock.id != self.id) &
+                (RoomBlock.room_id == self.room_id) &
+                (RoomBlock.status_id != Status.CANCELLED_STATUS_ID) &
+                (RoomBlock.start_datetime < self.end_datetime) &
+                (RoomBlock.end_datetime > self.start_datetime)
+            )
+            if overlap_query.exists():
+                raise ValueError("Time overlap with existing active block")
+
         return super().save(*args, **kwargs)
 
     @classmethod
     def active(cls):
         return cls.select().where(cls.is_deleted == False)
-
-    @classmethod
-    def is_unique_active(cls, room_id: int, start: datetime, end: datetime, exclude_id: int = None) -> bool:
-        query = cls.select().where(
-            (cls.is_deleted == False) &
-            (cls.room_id == room_id) &
-            (cls.start_datetime == start) &
-            (cls.end_datetime == end)
-        )
-        if exclude_id:
-            query = query.where(cls.id != exclude_id)
-        return not query.exists()
 
 
 def init_db(close_after: bool = False):
@@ -78,10 +101,8 @@ def init_db(close_after: bool = False):
         )
 
         for status_id, name, description in statuses:
-            Status.get_or_create(
-                id=status_id,
-                defaults={'name': name, 'description': description}
-            )
+            # Используем replace для обновления существующих записей
+            Status.replace(id=status_id, name=name, description=description).execute()
 
         if close_after:
             db.close()
