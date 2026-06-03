@@ -170,6 +170,9 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             raise HTTPException(404, "Block not found")
 
         data = block_data.model_dump(exclude_unset=True)
+        
+        if not data:
+            return to_response(block)
 
         if "status_id" in data:
             try:
