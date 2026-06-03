@@ -22,7 +22,6 @@ class RoomBlockUpdate(BaseModel):
     end_datetime: Optional[datetime] = None
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
-    is_deleted: Optional[bool] = None
 
 
 class RoomBlockResponse(BaseModel):
