@@ -86,10 +86,7 @@ class StatusResponse(BaseModel):
 class DeleteResponse(BaseModel):
     success: bool
 
-app = FastAPI(
-    title="Room Availability Service",
-    version="1.0.0"
-)
+app = FastAPI(title="Room Availability Service", version="1.0.0")
 
 @app.on_event("shutdown")
 def shutdown():
@@ -111,51 +108,43 @@ def to_response(block: RoomBlock):
     )
 
 def check_duplicate(room_id, start, end, exclude_id=None):
-    start_utc = to_utc(start)
-    end_utc = to_utc(end)
-    
     query = RoomBlock.select().where(
         (RoomBlock.is_deleted == False) &
         (RoomBlock.room_id == room_id) &
-        (RoomBlock.start_datetime == start_utc) &
-        (RoomBlock.end_datetime == end_utc)
+        (RoomBlock.start_datetime == start) &
+        (RoomBlock.end_datetime == end)
     )
-
     if exclude_id:
         query = query.where(RoomBlock.id != exclude_id)
-
     return query.exists()
 
 def check_overlap(room_id, start, end, exclude_id=None):
-    start_utc = to_utc(start)
-    end_utc = to_utc(end)
-    
     query = RoomBlock.select().where(
         (RoomBlock.is_deleted == False) &
         (RoomBlock.room_id == room_id) &
         (RoomBlock.status_id != Status.CANCELLED_STATUS_ID) &
-        (RoomBlock.start_datetime < end_utc) &
-        (RoomBlock.end_datetime > start_utc)
+        (RoomBlock.start_datetime < end) &
+        (RoomBlock.end_datetime > start)
     )
-
     if exclude_id:
         query = query.where(RoomBlock.id != exclude_id)
-
     return query.exists()
 
 @app.post("/blocks/", response_model=RoomBlockResponse, status_code=201)
 async def create_block(block: RoomBlockCreate):
     try:
-        status = Status.get_by_id(block.status_id)
+        Status.get_by_id(block.status_id)
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
 
-    if check_duplicate(block.room_id, block.start_datetime, block.end_datetime):
-        raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
+    start_utc = to_utc(block.start_datetime)
+    end_utc = to_utc(block.end_datetime)
 
-    if (block.status_id != Status.CANCELLED_STATUS_ID and 
-        check_overlap(block.room_id, block.start_datetime, block.end_datetime)):
-        raise HTTPException(409, "Time overlap with existing active block")
+    if check_duplicate(block.room_id, start_utc, end_utc):
+        raise HTTPException(409, "Duplicate block")
+
+    if block.status_id != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, start_utc, end_utc):
+        raise HTTPException(409, "Time overlap")
 
     try:
         new_block = RoomBlock.create(
@@ -169,50 +158,54 @@ async def create_block(block: RoomBlockCreate):
         return to_response(new_block)
     except IntegrityError:
         raise HTTPException(409, "Database conflict")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 @app.patch("/blocks/{block_id}", response_model=RoomBlockResponse)
 async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         block = RoomBlock.get_by_id(block_id)
-    except DoesNotExist:
-        raise HTTPException(404, "Block not found")
+        if block.is_deleted:
+            raise HTTPException(404, "Block not found")
 
-    if block.is_deleted:
-        raise HTTPException(404, "Block not found")
+        data = block_data.model_dump(exclude_unset=True)
 
-    data = block_data.model_dump(exclude_unset=True)
+        if "status_id" in data:
+            try:
+                Status.get_by_id(data["status_id"])
+            except DoesNotExist:
+                raise HTTPException(404, "Status not found")
 
-    if "status_id" in data:
-        try:
-            Status.get_by_id(data["status_id"])
-        except DoesNotExist:
-            raise HTTPException(404, "Status not found")
+        new_start = data.get("start_datetime", block.start_datetime)
+        new_end = data.get("end_datetime", block.end_datetime)
+        new_status = data.get("status_id", block.status_id)
 
-    new_start = data.get("start_datetime", block.start_datetime)
-    new_end = data.get("end_datetime", block.end_datetime)
-    new_status = data.get("status_id", block.status_id)
-
-    if "start_datetime" in data or "end_datetime" in data:
         new_start_utc = to_utc(new_start)
         new_end_utc = to_utc(new_end)
 
         if new_end_utc <= new_start_utc:
             raise HTTPException(400, "end_datetime must be greater than start_datetime")
+        if new_start_utc <= datetime.now(timezone.utc):
+            raise HTTPException(400, "start_datetime cannot be in the past")
 
-    if check_duplicate(block.room_id, new_start, new_end, block_id):
-        raise HTTPException(409, "Duplicate block (room_id, start_datetime, end_datetime)")
+        if check_duplicate(block.room_id, new_start_utc, new_end_utc, block_id):
+            raise HTTPException(409, "Duplicate block")
 
-    if (new_status != Status.CANCELLED_STATUS_ID and 
-        check_overlap(block.room_id, new_start, new_end, block_id)):
-        raise HTTPException(409, "Time overlap with existing active block")
+        if new_status != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
+            raise HTTPException(409, "Time overlap")
 
-    for k, v in data.items():
-        setattr(block, k, v)
+        for k, v in data.items():
+            setattr(block, k, v)
+        
+        block.save()
+        return to_response(block)
 
-    block.updated_at = datetime.now(timezone.utc)
-    block.save()
-
-    return to_response(block)
+    except DoesNotExist:
+        raise HTTPException(404, "Block not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except IntegrityError:
+        raise HTTPException(409, "Database conflict")
 
 @app.delete("/blocks/{block_id}", response_model=DeleteResponse)
 async def delete_block(block_id: int):
@@ -220,11 +213,9 @@ async def delete_block(block_id: int):
         block = RoomBlock.get_by_id(block_id)
         if block.is_deleted:
             return DeleteResponse(success=False)
-
         block.is_deleted = True
         block.save()
         return DeleteResponse(success=True)
-
     except DoesNotExist:
         return DeleteResponse(success=False)
 
@@ -246,15 +237,8 @@ async def get_blocks(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
-    if date_from is not None:
-        date_from_utc = to_utc(date_from)
-    else:
-        date_from_utc = None
-        
-    if date_to is not None:
-        date_to_utc = to_utc(date_to)
-    else:
-        date_to_utc = None
+    date_from_utc = to_utc(date_from) if date_from is not None else None
+    date_to_utc = to_utc(date_to) if date_to is not None else None
 
     if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
         raise HTTPException(400, "date_from must be less than date_to")
@@ -263,10 +247,8 @@ async def get_blocks(
 
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
-
     if event_id:
         query = query.where(RoomBlock.event_id == event_id)
-
     if status_id:
         query = query.where(RoomBlock.status_id == status_id)
 
@@ -281,7 +263,6 @@ async def get_blocks(
         query = query.where(RoomBlock.start_datetime < date_to_utc)
 
     query = query.order_by(RoomBlock.id).limit(limit).offset(offset)
-
     return [to_response(item) for item in query]
 
 @app.get("/statuses/", response_model=List[StatusResponse])
