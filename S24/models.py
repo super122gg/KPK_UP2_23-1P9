@@ -42,8 +42,7 @@ class RoomBlock(BaseModel):
 
     class Meta:
         constraints = [
-            Check('end_datetime > start_datetime'),
-            SQL('UNIQUE(room_id, start_datetime, end_datetime)')
+            Check('end_datetime > start_datetime')
         ]
 
     @classmethod
