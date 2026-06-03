@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from models import RoomBlock, Status, db
 
-# Инициализация БД не вызывается здесь (только в models.py)
 
 
 class RoomBlockCreate(BaseModel):
@@ -132,8 +131,7 @@ async def create_block(block: RoomBlockCreate):
 async def update_block(block_id: int, block_data: RoomBlockUpdate):
     try:
         block = RoomBlock.get_by_id(block_id)
-        # Разрешено изменять даже удалённые записи? По логике - да, но в ТЗ не сказано.
-        # Оставим как есть: нельзя изменять удалённые.
+
         if block.is_deleted:
             raise HTTPException(404, "Block not found")
     except DoesNotExist:
@@ -170,7 +168,6 @@ async def delete_block(block_id: int):
 async def get_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
-        # Возвращаем даже удалённые записи (как в doc.md)
     except DoesNotExist:
         raise HTTPException(404, "Block not found")
     return to_response(block)
@@ -186,7 +183,6 @@ async def get_blocks(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    # Возвращаем все записи, включая удалённые
     query = RoomBlock.select()
 
     if room_id:
