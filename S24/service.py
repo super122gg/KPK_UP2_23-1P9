@@ -44,25 +44,6 @@ class RoomBlockUpdate(BaseModel):
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
 
-    @field_validator("start_datetime")
-    @classmethod
-    def validate_start_not_past(cls, v):
-        if v is not None:
-            v = to_utc(v)
-            if v <= datetime.now(timezone.utc):
-                raise ValueError("start_datetime cannot be in the past")
-        return v
-
-    @field_validator("end_datetime")
-    @classmethod
-    def validate_end_after_start(cls, v, info: ValidationInfo):
-        if v is not None:
-            v = to_utc(v)
-            start = info.data.get("start_datetime")
-            if start and v <= start:
-                raise ValueError("end_datetime must be greater than start_datetime")
-        return v
-
 
 class RoomBlockResponse(BaseModel):
     id: int
@@ -80,10 +61,21 @@ class RoomBlockResponse(BaseModel):
         from_attributes = True
 
 
+class StatusCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=20)
+    description: str = Field(default="", max_length=100)
+
+
+class StatusUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=20)
+    description: Optional[str] = Field(None, max_length=100)
+
+
 class StatusResponse(BaseModel):
     id: int
     name: str
     description: str
+    is_active: bool
 
     class Config:
         from_attributes = True
@@ -106,7 +98,7 @@ def shutdown():
         db.close()
 
 
-def to_response(block: RoomBlock):
+def to_response(block: RoomBlock) -> RoomBlockResponse:
     return RoomBlockResponse(
         id=block.id,
         room_id=block.room_id,
@@ -158,11 +150,7 @@ async def create_block(block: RoomBlockCreate):
 
     if check_duplicate(block.room_id, start_utc, end_utc):
         raise HTTPException(409, "Duplicate block")
-
-    if (
-        block.status_id != Status.CANCELLED_STATUS_ID
-        and check_overlap(block.room_id, start_utc, end_utc)
-    ):
+    if block.status_id != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, start_utc, end_utc):
         raise HTTPException(409, "Time overlap")
 
     try:
@@ -187,7 +175,6 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             raise HTTPException(404, "Block not found")
 
         data = block_data.model_dump(exclude_unset=True)
-
         if not data:
             return to_response(block)
 
@@ -211,16 +198,11 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
 
         if check_duplicate(block.room_id, new_start_utc, new_end_utc, block_id):
             raise HTTPException(409, "Duplicate block")
-
-        if (
-            new_status != Status.CANCELLED_STATUS_ID
-            and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id)
-        ):
+        if new_status != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
             raise HTTPException(409, "Time overlap")
 
         for k, v in data.items():
             setattr(block, k, v)
-
         block.save()
         return to_response(block)
 
@@ -265,15 +247,10 @@ async def get_blocks(
     date_from_utc = to_utc(date_from) if date_from is not None else None
     date_to_utc = to_utc(date_to) if date_to is not None else None
 
-    if (
-        date_from_utc is not None
-        and date_to_utc is not None
-        and date_from_utc >= date_to_utc
-    ):
+    if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
         raise HTTPException(400, "date_from must be less than date_to")
 
     query = RoomBlock.select()
-
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
     if event_id:
@@ -283,8 +260,7 @@ async def get_blocks(
 
     if date_from_utc and date_to_utc:
         query = query.where(
-            (RoomBlock.start_datetime < date_to_utc)
-            & (RoomBlock.end_datetime > date_from_utc)
+            (RoomBlock.start_datetime < date_to_utc) & (RoomBlock.end_datetime > date_from_utc)
         )
     elif date_from_utc:
         query = query.where(RoomBlock.end_datetime > date_from_utc)
@@ -295,9 +271,52 @@ async def get_blocks(
     return [to_response(item) for item in query]
 
 
-@app.get("/statuses/", response_model=List[StatusResponse])
-async def get_statuses():
-    return [StatusResponse.model_validate(s) for s in Status.select()]
+@app.post("/statuses/", response_model=StatusResponse, status_code=201)
+async def create_status(status: StatusCreate):
+    try:
+        new_status = Status.create(name=status.name, description=status.description)
+        return StatusResponse.model_validate(new_status)
+    except IntegrityError:
+        raise HTTPException(409, "Status with this name already exists")
+
+
+@app.patch("/statuses/{status_id}", response_model=StatusResponse)
+async def update_status(status_id: int, status_data: StatusUpdate):
+    try:
+        status = Status.get_by_id(status_id)
+        data = status_data.model_dump(exclude_unset=True)
+        if not data:
+            return StatusResponse.model_validate(status)
+
+        if "name" in data:
+            existing = Status.select().where(Status.name == data["name"], Status.id != status_id)
+            if existing.exists():
+                raise HTTPException(409, "Status with this name already exists")
+
+        for k, v in data.items():
+            setattr(status, k, v)
+        status.save()
+        return StatusResponse.model_validate(status)
+    except DoesNotExist:
+        raise HTTPException(404, "Status not found")
+
+
+@app.delete("/statuses/{status_id}", response_model=DeleteResponse)
+async def delete_status(status_id: int):
+    try:
+        status = Status.get_by_id(status_id)
+        if not status.is_active:
+            return DeleteResponse(success=False)
+
+        used = RoomBlock.select().where(RoomBlock.status_id == status_id, RoomBlock.is_active == True).exists()
+        if used:
+            raise HTTPException(409, "Status is used in active room blocks and cannot be deleted")
+
+        status.is_active = False
+        status.save()
+        return DeleteResponse(success=True)
+    except DoesNotExist:
+        return DeleteResponse(success=False)
 
 
 @app.get("/statuses/{status_id}", response_model=StatusResponse)
@@ -307,6 +326,11 @@ async def get_status(status_id: int):
         return StatusResponse.model_validate(status)
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
+
+
+@app.get("/statuses/", response_model=List[StatusResponse])
+async def get_statuses():
+    return [StatusResponse.model_validate(s) for s in Status.select()]
 
 
 @app.get("/health", response_model=HealthResponse)
