@@ -37,49 +37,20 @@ class RoomBlock(BaseModel):
 
     class Meta:
         constraints = [
-            Check('end_datetime > start_datetime'),
-            # Уникальный индекс для обеспечения целостности на уровне БД
-            SQL('UNIQUE(room_id, start_datetime, end_datetime)')
+            Check('end_datetime > start_datetime')
+        ]
+        # Неуникальный индекс для ускорения запросов (уникальность проверяется в service.py)
+        indexes = [
+            (('room_id', 'start_datetime', 'end_datetime'), False),
         ]
 
-    def save(self, *args, **kwargs):
-        """Автоматически обновляет updated_at и проверяет start_datetime не в прошлом."""
-        now = datetime.now(timezone.utc)
-
-        # 1. Проверка: start_datetime не может быть в прошлом
-        if self.start_datetime.tzinfo is None:
-            start = self.start_datetime.replace(tzinfo=timezone.utc)
-        else:
-            start = self.start_datetime.astimezone(timezone.utc)
-        if start <= now:
-            raise ValueError("start_datetime cannot be in the past")
-
-        # 2. Обновляем updated_at
-        self.updated_at = now
-
-        # 3. Сохраняем запись (уникальность проверит БД)
-        return super().save(*args, **kwargs)
+    # Метод save() удалён – вся бизнес-логика (проверка дат, уникальности, пересечений)
+    # вынесена в service.py, что соответствует требованиям.
 
 def init_db(close_after: bool = False):
-    """Создаёт таблицы и заполняет предопределённые статусы (id 1,2,3)."""
     try:
         db.connect(reuse_if_open=True)
         db.create_tables([Status, RoomBlock], safe=True)
-
-        # Предопределённые статусы (согласно doc.md)
-        default_statuses = [
-            (1, 'active', 'Active block'),
-            (2, 'cancelled', 'Cancelled block'),
-            (3, 'pending', 'Pending confirmation'),
-        ]
-        for sid, name, desc in default_statuses:
-            Status.insert(
-                id=sid, name=name, description=desc, is_active=True
-            ).on_conflict(
-                conflict_target=[Status.id],
-                update={'name': name, 'description': desc, 'is_active': True}
-            ).execute()
-
         if close_after:
             db.close()
     except Exception as e:
