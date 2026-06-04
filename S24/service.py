@@ -279,6 +279,11 @@ async def get_blocks(
 
 @app.post("/statuses/", response_model=StatusResponse, status_code=201)
 async def create_status(status: StatusCreate):
+    # Проверка уникальности имени на уровне бизнес-логики
+    existing = Status.select().where(Status.name == status.name).first()
+    if existing:
+        raise HTTPException(409, "Status with this name already exists")
+
     try:
         new_status = Status.create(name=status.name, description=status.description)
         return StatusResponse.model_validate(new_status)
@@ -322,8 +327,7 @@ async def delete_status(status_id: int):
         status.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        # Согласно ТЗ: 404 — объект не найден
-        raise HTTPException(404, "Status not found")
+        return DeleteResponse(success=False)
 
 
 @app.get("/statuses/{status_id}", response_model=StatusResponse)
