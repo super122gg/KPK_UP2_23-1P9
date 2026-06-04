@@ -134,23 +134,12 @@ def to_response(block: RoomBlock) -> RoomBlockResponse:
     )
 
 
-def check_duplicate(room_id, start, end, exclude_id=None):
+def check_overlap(room_id, start, end, exclude_id=None, current_status_id=None):
     """
-    Проверка уникальности комбинации (room_id, start_datetime, end_datetime)
-    для активных записей (is_active == True). Требуется точное совпадение всех трёх полей.
+    Проверка пересечения интервалов для активных блокировок.
+    Учитывает только блоки со статусом != cancelled.
+    Пересечение включает также случай полного совпадения интервалов (дубликат).
     """
-    query = RoomBlock.select().where(
-        (RoomBlock.is_active == True)
-        & (RoomBlock.room_id == room_id)
-        & (RoomBlock.start_datetime == start)
-        & (RoomBlock.end_datetime == end)
-    )
-    if exclude_id:
-        query = query.where(RoomBlock.id != exclude_id)
-    return query.exists()
-
-
-def check_overlap(room_id, start, end, exclude_id=None):
     query = RoomBlock.select().where(
         (RoomBlock.is_active == True)
         & (RoomBlock.room_id == room_id)
@@ -165,18 +154,20 @@ def check_overlap(room_id, start, end, exclude_id=None):
 
 @app.post("/blocks/", response_model=RoomBlockResponse, status_code=201)
 async def create_block(block: RoomBlockCreate):
+    # Проверка существования и активности статуса
     try:
-        Status.get_by_id(block.status_id)
+        status = Status.get_by_id(block.status_id)
+        if not status.is_active:
+            raise HTTPException(404, "Status not found or inactive")
     except DoesNotExist:
         raise HTTPException(404, "Status not found")
 
     start_utc = to_utc(block.start_datetime)
     end_utc = to_utc(block.end_datetime)
 
-    if check_duplicate(block.room_id, start_utc, end_utc):
-        raise HTTPException(409, "Duplicate block")
-    if block.status_id != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, start_utc, end_utc):
-        raise HTTPException(409, "Time overlap")
+    # Пересечение интервалов (включая точное совпадение)
+    if check_overlap(block.room_id, start_utc, end_utc):
+        raise HTTPException(409, "Time overlap or duplicate block")
 
     try:
         new_block = RoomBlock.create(
@@ -203,32 +194,26 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         if not data:
             return to_response(block)
 
-        # После валидации Pydantic даты уже проверены и приведены к UTC
+        # После валидации Pydantic даты уже проверены
         new_start = data.get("start_datetime", block.start_datetime)
         new_end = data.get("end_datetime", block.end_datetime)
         new_status = data.get("status_id", block.status_id)
 
-        # Дополнительная проверка: если даты не менялись, пропускаем бизнес-правила
-        start_changed = "start_datetime" in data
-        end_changed = "end_datetime" in data
-        status_changed = "status_id" in data
+        # Проверка существования и активности статуса, если передан
+        if "status_id" in data:
+            try:
+                status = Status.get_by_id(new_status)
+                if not status.is_active:
+                    raise HTTPException(404, "Status not found or inactive")
+            except DoesNotExist:
+                raise HTTPException(404, "Status not found")
 
-        if start_changed or end_changed or status_changed:
-            # Проверка существования статуса (если передан)
-            if status_changed:
-                try:
-                    Status.get_by_id(new_status)
-                except DoesNotExist:
-                    raise HTTPException(404, "Status not found")
-
-            # Приводим даты к UTC (валидаторы уже сделали, но для уверенности)
+        # Если даты или статус изменились – проверяем пересечение
+        if "start_datetime" in data or "end_datetime" in data or "status_id" in data:
             new_start_utc = to_utc(new_start)
             new_end_utc = to_utc(new_end)
-
-            if check_duplicate(block.room_id, new_start_utc, new_end_utc, block_id):
-                raise HTTPException(409, "Duplicate block")
-            if new_status != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
-                raise HTTPException(409, "Time overlap")
+            if check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
+                raise HTTPException(409, "Time overlap or duplicate block")
 
         # Применяем изменения
         for k, v in data.items():
@@ -247,12 +232,12 @@ async def delete_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
         if not block.is_active:
-            return DeleteResponse(success=False)
+            # Запись уже удалена (мягко) – считаем, что ресурс не найден
+            raise HTTPException(404, "Block not found")
         block.is_active = False
         block.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        # Согласно REST и кодам ошибок в doc.md, несуществующий ресурс -> 404
         raise HTTPException(404, "Block not found")
 
 
@@ -281,7 +266,6 @@ async def get_blocks(
     if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
         raise HTTPException(400, "date_from must be less than date_to")
 
-    # Список должен включать удалённые записи → фильтр по is_active НЕ применяется
     query = RoomBlock.select()
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
@@ -320,6 +304,7 @@ async def update_status(status_id: int, status_data: StatusUpdate):
         if not data:
             return StatusResponse.model_validate(status)
 
+        # Проверка уникальности имени, если оно меняется
         if "name" in data:
             existing = Status.select().where(Status.name == data["name"], Status.id != status_id)
             if existing.exists():
@@ -338,7 +323,7 @@ async def delete_status(status_id: int):
     try:
         status = Status.get_by_id(status_id)
         if not status.is_active:
-            return DeleteResponse(success=False)
+            raise HTTPException(404, "Status not found")
 
         used = RoomBlock.select().where(RoomBlock.status_id == status_id, RoomBlock.is_active == True).exists()
         if used:
