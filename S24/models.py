@@ -39,13 +39,8 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        # Неуникальный индекс для ускорения запросов (уникальность проверяется в service.py)
-        indexes = [
-            (('room_id', 'start_datetime', 'end_datetime'), False),
-        ]
-
-    # Метод save() удалён – вся бизнес-логика (проверка дат, уникальности, пересечений)
-    # вынесена в service.py, что соответствует требованиям.
+        # Индекс удалён, так как он не обеспечивает уникальность для активных записей.
+        # Уникальность и проверки (не в прошлом, пересечения) выполняются в service.py.
 
 def init_db(close_after: bool = False):
     try:
