@@ -11,7 +11,7 @@ class Status(BaseModel):
     ACTIVE_STATUS_ID = 1
     CANCELLED_STATUS_ID = 2
     PENDING_STATUS_ID = 3
- 
+
     id = IntegerField(primary_key=True)
     name = CharField(max_length=20, unique=True)
     description = CharField(max_length=100, default='')
@@ -39,8 +39,13 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        # Индекс удалён, так как он не обеспечивает уникальность для активных записей.
-        # Уникальность и проверки (не в прошлом, пересечения) выполняются в service.py.
+        # Неуникальный индекс для ускорения запросов (уникальность проверяется в service.py)
+        indexes = [
+            (('room_id', 'start_datetime', 'end_datetime'), False),
+        ]
+
+    # Метод save() удалён – вся бизнес-логика (проверка дат, уникальности, пересечений)
+    # вынесена в service.py, что соответствует требованиям.
 
 def init_db(close_after: bool = False):
     try:
