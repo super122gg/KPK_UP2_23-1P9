@@ -134,7 +134,7 @@ def to_response(block: RoomBlock) -> RoomBlockResponse:
     )
 
 
-def check_overlap(room_id, start, end, exclude_id=None, current_status_id=None):
+def check_overlap(room_id, start, end, exclude_id=None):
     """
     Проверка пересечения интервалов для активных блокировок.
     Учитывает только блоки со статусом != cancelled.
@@ -154,7 +154,6 @@ def check_overlap(room_id, start, end, exclude_id=None, current_status_id=None):
 
 @app.post("/blocks/", response_model=RoomBlockResponse, status_code=201)
 async def create_block(block: RoomBlockCreate):
-    # Проверка существования и активности статуса
     try:
         status = Status.get_by_id(block.status_id)
         if not status.is_active:
@@ -165,7 +164,6 @@ async def create_block(block: RoomBlockCreate):
     start_utc = to_utc(block.start_datetime)
     end_utc = to_utc(block.end_datetime)
 
-    # Пересечение интервалов (включая точное совпадение)
     if check_overlap(block.room_id, start_utc, end_utc):
         raise HTTPException(409, "Time overlap or duplicate block")
 
@@ -194,12 +192,10 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         if not data:
             return to_response(block)
 
-        # После валидации Pydantic даты уже проверены
         new_start = data.get("start_datetime", block.start_datetime)
         new_end = data.get("end_datetime", block.end_datetime)
         new_status = data.get("status_id", block.status_id)
 
-        # Проверка существования и активности статуса, если передан
         if "status_id" in data:
             try:
                 status = Status.get_by_id(new_status)
@@ -208,16 +204,16 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             except DoesNotExist:
                 raise HTTPException(404, "Status not found")
 
-        # Если даты или статус изменились – проверяем пересечение
         if "start_datetime" in data or "end_datetime" in data or "status_id" in data:
             new_start_utc = to_utc(new_start)
             new_end_utc = to_utc(new_end)
             if check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
                 raise HTTPException(409, "Time overlap or duplicate block")
 
-        # Применяем изменения
         for k, v in data.items():
             setattr(block, k, v)
+        # Явное обновление поля updated_at, так как в модели метод save() не переопределён
+        block.updated_at = datetime.now(timezone.utc)
         block.save()
         return to_response(block)
 
@@ -232,13 +228,13 @@ async def delete_block(block_id: int):
     try:
         block = RoomBlock.get_by_id(block_id)
         if not block.is_active:
-            # Запись уже удалена (мягко) – считаем, что ресурс не найден
-            raise HTTPException(404, "Block not found")
+            return DeleteResponse(success=False)
         block.is_active = False
+        block.updated_at = datetime.now(timezone.utc)
         block.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        raise HTTPException(404, "Block not found")
+        return DeleteResponse(success=False)
 
 
 @app.get("/blocks/{block_id}", response_model=RoomBlockResponse)
@@ -304,7 +300,6 @@ async def update_status(status_id: int, status_data: StatusUpdate):
         if not data:
             return StatusResponse.model_validate(status)
 
-        # Проверка уникальности имени, если оно меняется
         if "name" in data:
             existing = Status.select().where(Status.name == data["name"], Status.id != status_id)
             if existing.exists():
@@ -346,16 +341,8 @@ async def get_status(status_id: int):
 
 
 @app.get("/statuses/", response_model=List[StatusResponse])
-async def get_statuses(
-    is_active: Optional[bool] = Query(None, description="Фильтр по активности (true/false)"),
-    name: Optional[str] = Query(None, min_length=1, max_length=20, description="Частичное совпадение названия"),
-):
-    query = Status.select()
-    if is_active is not None:
-        query = query.where(Status.is_active == is_active)
-    if name:
-        query = query.where(Status.name.contains(name))
-    return [StatusResponse.model_validate(s) for s in query]
+async def get_statuses():
+    return [StatusResponse.model_validate(s) for s in Status.select()]
 
 
 @app.get("/health", response_model=HealthResponse)
