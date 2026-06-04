@@ -33,7 +33,9 @@ class RoomBlockCreate(BaseModel):
     def validate_end_after_start(cls, v, info: ValidationInfo):
         v = to_utc(v)
         start = info.data.get("start_datetime")
-        if start and v <= start:
+        if start is None:
+            return v
+        if v <= start:
             raise ValueError("end_datetime must be greater than start_datetime")
         return v
 
@@ -178,16 +180,9 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         if not data:
             return to_response(block)
 
-        if "status_id" in data:
-            try:
-                Status.get_by_id(data["status_id"])
-            except DoesNotExist:
-                raise HTTPException(404, "Status not found")
-
+        # 1. Валидация дат (если они переданы)
         new_start = data.get("start_datetime", block.start_datetime)
         new_end = data.get("end_datetime", block.end_datetime)
-        new_status = data.get("status_id", block.status_id)
-
         new_start_utc = to_utc(new_start)
         new_end_utc = to_utc(new_end)
 
@@ -196,11 +191,21 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         if new_start_utc <= datetime.now(timezone.utc):
             raise HTTPException(400, "start_datetime cannot be in the past")
 
+        # 2. Проверка существования статуса (если передан)
+        if "status_id" in data:
+            try:
+                Status.get_by_id(data["status_id"])
+            except DoesNotExist:
+                raise HTTPException(404, "Status not found")
+
+        # 3. Бизнес-правила (дубликаты и пересечения)
+        new_status = data.get("status_id", block.status_id)
         if check_duplicate(block.room_id, new_start_utc, new_end_utc, block_id):
             raise HTTPException(409, "Duplicate block")
         if new_status != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
             raise HTTPException(409, "Time overlap")
 
+        # 4. Применяем изменения
         for k, v in data.items():
             setattr(block, k, v)
         block.save()
@@ -250,6 +255,7 @@ async def get_blocks(
     if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
         raise HTTPException(400, "date_from must be less than date_to")
 
+    # Список должен включать удалённые записи → фильтр по is_active НЕ применяется
     query = RoomBlock.select()
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
@@ -316,7 +322,8 @@ async def delete_status(status_id: int):
         status.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        return DeleteResponse(success=False)
+        # Согласно ТЗ: 404 — объект не найден
+        raise HTTPException(404, "Status not found")
 
 
 @app.get("/statuses/{status_id}", response_model=StatusResponse)
@@ -329,8 +336,16 @@ async def get_status(status_id: int):
 
 
 @app.get("/statuses/", response_model=List[StatusResponse])
-async def get_statuses():
-    return [StatusResponse.model_validate(s) for s in Status.select()]
+async def get_statuses(
+    is_active: Optional[bool] = Query(None, description="Фильтр по активности (true/false)"),
+    name: Optional[str] = Query(None, min_length=1, max_length=20, description="Частичное совпадение названия"),
+):
+    query = Status.select()
+    if is_active is not None:
+        query = query.where(Status.is_active == is_active)
+    if name:
+        query = query.where(Status.name.contains(name))
+    return [StatusResponse.model_validate(s) for s in query]
 
 
 @app.get("/health", response_model=HealthResponse)
