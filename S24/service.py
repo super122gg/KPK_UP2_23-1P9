@@ -46,6 +46,25 @@ class RoomBlockUpdate(BaseModel):
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
 
+    @field_validator("start_datetime")
+    @classmethod
+    def validate_start_not_past(cls, v):
+        if v is not None:
+            v = to_utc(v)
+            if v <= datetime.now(timezone.utc):
+                raise ValueError("start_datetime cannot be in the past")
+        return v
+
+    @field_validator("end_datetime")
+    @classmethod
+    def validate_end_after_start(cls, v, info: ValidationInfo):
+        if v is not None:
+            v = to_utc(v)
+            start = info.data.get("start_datetime")
+            if start is not None and v <= start:
+                raise ValueError("end_datetime must be greater than start_datetime")
+        return v
+
 
 class RoomBlockResponse(BaseModel):
     id: int
@@ -116,6 +135,10 @@ def to_response(block: RoomBlock) -> RoomBlockResponse:
 
 
 def check_duplicate(room_id, start, end, exclude_id=None):
+    """
+    Проверка уникальности комбинации (room_id, start_datetime, end_datetime)
+    для активных записей (is_active == True). Требуется точное совпадение всех трёх полей.
+    """
     query = RoomBlock.select().where(
         (RoomBlock.is_active == True)
         & (RoomBlock.room_id == room_id)
@@ -180,32 +203,34 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
         if not data:
             return to_response(block)
 
-        # 1. Валидация дат (если они переданы)
+        # После валидации Pydantic даты уже проверены и приведены к UTC
         new_start = data.get("start_datetime", block.start_datetime)
         new_end = data.get("end_datetime", block.end_datetime)
-        new_start_utc = to_utc(new_start)
-        new_end_utc = to_utc(new_end)
-
-        if new_end_utc <= new_start_utc:
-            raise HTTPException(400, "end_datetime must be greater than start_datetime")
-        if new_start_utc <= datetime.now(timezone.utc):
-            raise HTTPException(400, "start_datetime cannot be in the past")
-
-        # 2. Проверка существования статуса (если передан)
-        if "status_id" in data:
-            try:
-                Status.get_by_id(data["status_id"])
-            except DoesNotExist:
-                raise HTTPException(404, "Status not found")
-
-        # 3. Бизнес-правила (дубликаты и пересечения)
         new_status = data.get("status_id", block.status_id)
-        if check_duplicate(block.room_id, new_start_utc, new_end_utc, block_id):
-            raise HTTPException(409, "Duplicate block")
-        if new_status != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
-            raise HTTPException(409, "Time overlap")
 
-        # 4. Применяем изменения
+        # Дополнительная проверка: если даты не менялись, пропускаем бизнес-правила
+        start_changed = "start_datetime" in data
+        end_changed = "end_datetime" in data
+        status_changed = "status_id" in data
+
+        if start_changed or end_changed or status_changed:
+            # Проверка существования статуса (если передан)
+            if status_changed:
+                try:
+                    Status.get_by_id(new_status)
+                except DoesNotExist:
+                    raise HTTPException(404, "Status not found")
+
+            # Приводим даты к UTC (валидаторы уже сделали, но для уверенности)
+            new_start_utc = to_utc(new_start)
+            new_end_utc = to_utc(new_end)
+
+            if check_duplicate(block.room_id, new_start_utc, new_end_utc, block_id):
+                raise HTTPException(409, "Duplicate block")
+            if new_status != Status.CANCELLED_STATUS_ID and check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
+                raise HTTPException(409, "Time overlap")
+
+        # Применяем изменения
         for k, v in data.items():
             setattr(block, k, v)
         block.save()
@@ -227,7 +252,8 @@ async def delete_block(block_id: int):
         block.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        return DeleteResponse(success=False)
+        # Согласно REST и кодам ошибок в doc.md, несуществующий ресурс -> 404
+        raise HTTPException(404, "Block not found")
 
 
 @app.get("/blocks/{block_id}", response_model=RoomBlockResponse)
@@ -279,11 +305,6 @@ async def get_blocks(
 
 @app.post("/statuses/", response_model=StatusResponse, status_code=201)
 async def create_status(status: StatusCreate):
-    # Проверка уникальности имени на уровне бизнес-логики
-    existing = Status.select().where(Status.name == status.name).first()
-    if existing:
-        raise HTTPException(409, "Status with this name already exists")
-
     try:
         new_status = Status.create(name=status.name, description=status.description)
         return StatusResponse.model_validate(new_status)
@@ -327,7 +348,7 @@ async def delete_status(status_id: int):
         status.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        return DeleteResponse(success=False)
+        raise HTTPException(404, "Status not found")
 
 
 @app.get("/statuses/{status_id}", response_model=StatusResponse)
