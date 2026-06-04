@@ -14,7 +14,7 @@ class Status(BaseModel):
 
     id = IntegerField(primary_key=True)
     name = CharField(max_length=20, unique=True)
-    description = CharField(max_length=100, default='')   # добавлено значение по умолчанию
+    description = CharField(max_length=100, default='')
     is_active = BooleanField(default=True)
 
 class RoomBlock(BaseModel):
@@ -39,26 +39,13 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        
+        # Индекс удалён – уникальность для активных записей проверяется в бизнес-логике (service.py)
+        # SQLite не поддерживает частичные уникальные индексы с условием WHERE is_active = true
 
     def save(self, *args, **kwargs):
-        # Автоматическое обновление поля updated_at
+        # Автоматическое обновление поля updated_at при каждом сохранении
         self.updated_at = datetime.now(timezone.utc)
-
-        # Проверка бизнес-правила: интервалы одной аудитории не должны пересекаться
-        # (кроме блоков со статусом cancelled)
-        if self.is_active and self.status_id != Status.CANCELLED_STATUS_ID:
-            overlap_query = RoomBlock.select().where(
-                (RoomBlock.is_active == True) &
-                (RoomBlock.id != self.id) &
-                (RoomBlock.room_id == self.room_id) &
-                (RoomBlock.status_id != Status.CANCELLED_STATUS_ID) &
-                (RoomBlock.start_datetime < self.end_datetime) &
-                (RoomBlock.end_datetime > self.start_datetime)
-            )
-            if overlap_query.exists():
-                raise ValueError("Time overlap with existing active block")
-
+        # Вся бизнес-логика (проверка пересечений, дубликатов) вынесена в service.py
         return super().save(*args, **kwargs)
 
 def init_db(close_after: bool = False):
@@ -66,16 +53,17 @@ def init_db(close_after: bool = False):
         db.connect(reuse_if_open=True)
         db.create_tables([Status, RoomBlock], safe=True)
 
+        # Предопределённые статусы – вставляем только если их нет (без обновления существующих)
         statuses = [
             (1, 'active', 'Active block'),
             (2, 'cancelled', 'Cancelled block'),
             (3, 'pending', 'Pending confirmation'),
         ]
         for status_id, name, description in statuses:
-            Status.insert(id=status_id, name=name, description=description, is_active=True).on_conflict(
-                conflict_target=[Status.id],
-                update={'name': name, 'description': description, 'is_active': True}
-            ).execute()
+            Status.get_or_create(
+                id=status_id,
+                defaults={'name': name, 'description': description, 'is_active': True}
+            )
 
         if close_after:
             db.close()
