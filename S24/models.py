@@ -39,13 +39,6 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        # Уникальность комбинации (room_id, start, end) для активных записей
-        # проверяется в service.py, так как SQLite не поддерживает частичные уникальные индексы.
-
-    def save(self, *args, **kwargs):
-        # Обновляем updated_at при каждом сохранении (имитация "auto now on update")
-        self.updated_at = datetime.now(timezone.utc)
-        return super().save(*args, **kwargs)
 
 def init_db(close_after: bool = False):
     """Создаёт таблицы, если их нет. Инициализация справочников выполняется в service.py."""
