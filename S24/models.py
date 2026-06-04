@@ -11,7 +11,7 @@ class Status(BaseModel):
     ACTIVE_STATUS_ID = 1
     CANCELLED_STATUS_ID = 2
     PENDING_STATUS_ID = 3
- 
+
     id = IntegerField(primary_key=True)
     name = CharField(max_length=20, unique=True)
     description = CharField(max_length=100, default='')
@@ -39,15 +39,15 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        # Неуникальный индекс для ускорения запросов (уникальность проверяется в service.py)
-        indexes = [
-            (('room_id', 'start_datetime', 'end_datetime'), False),
-        ]
+        # Индекс удалён, так как уникальность для активных записей проверяется в service.py
 
-    # Метод save() удалён – вся бизнес-логика (проверка дат, уникальности, пересечений)
-    # вынесена в service.py, что соответствует требованиям.
+    def save(self, *args, **kwargs):
+        """Автоматически обновляет updated_at при каждом сохранении."""
+        self.updated_at = datetime.now(timezone.utc)
+        return super().save(*args, **kwargs)
 
 def init_db(close_after: bool = False):
+    """Создаёт таблицы, если их нет. Заполнение статусов выполняется в service.py."""
     try:
         db.connect(reuse_if_open=True)
         db.create_tables([Status, RoomBlock], safe=True)
