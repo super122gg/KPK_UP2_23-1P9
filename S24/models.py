@@ -11,7 +11,7 @@ class Status(BaseModel):
     ACTIVE_STATUS_ID = 1
     CANCELLED_STATUS_ID = 2
     PENDING_STATUS_ID = 3
-
+ 
     id = IntegerField(primary_key=True)
     name = CharField(max_length=20, unique=True)
     description = CharField(max_length=100, default='')
