@@ -40,6 +40,17 @@ class RoomBlock(BaseModel):
             Check('end_datetime > start_datetime')
         ]
 
+    def save(self, *args, **kwargs):
+        # Приводим start_datetime к UTC
+        if self.start_datetime.tzinfo is None:
+            start = self.start_datetime.replace(tzinfo=timezone.utc)
+        else:
+            start = self.start_datetime.astimezone(timezone.utc)
+        # Проверка: start_datetime не может быть в прошлом
+        if start <= datetime.now(timezone.utc):
+            raise ValueError("start_datetime cannot be in the past")
+        return super().save(*args, **kwargs)
+
 def init_db(close_after: bool = False):
     """Создаёт таблицы, если их нет. Инициализация справочников выполняется в service.py."""
     try:
