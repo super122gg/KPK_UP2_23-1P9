@@ -1,0 +1,7 @@
+peewee
+fastapi
+uvicorn
+pydantic
+passlib
+python-jose
+requests
