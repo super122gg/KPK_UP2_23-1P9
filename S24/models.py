@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from peewee import *
+from peewee import * 
 
 db = SqliteDatabase('room_availability.db')
 
