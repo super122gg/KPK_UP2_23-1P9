@@ -20,14 +20,7 @@ class RoomBlockCreate(BaseModel):
     status_id: int = Field(default=1, ge=1)
     comment: str = Field(default="", max_length=500)
 
-    @field_validator("start_datetime")
-    @classmethod
-    def validate_start_not_past(cls, v):
-        v = to_utc(v)
-        if v <= datetime.now(timezone.utc):
-            raise ValueError("start_datetime cannot be in the past")
-        return v
-
+    # Валидатор start_datetime удалён – проверка выполняется в модели RoomBlock.save()
     @field_validator("end_datetime")
     @classmethod
     def validate_end_after_start(cls, v, info: ValidationInfo):
@@ -46,15 +39,7 @@ class RoomBlockUpdate(BaseModel):
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
 
-    @field_validator("start_datetime")
-    @classmethod
-    def validate_start_not_past(cls, v):
-        if v is not None:
-            v = to_utc(v)
-            if v <= datetime.now(timezone.utc):
-                raise ValueError("start_datetime cannot be in the past")
-        return v
-
+    # Валидатор start_datetime удалён – проверка выполняется в модели RoomBlock.save()
     @field_validator("end_datetime")
     @classmethod
     def validate_end_after_start(cls, v, info: ValidationInfo):
@@ -177,6 +162,8 @@ async def create_block(block: RoomBlockCreate):
             comment=block.comment,
         )
         return to_response(new_block)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except IntegrityError:
         raise HTTPException(409, "Database conflict")
 
@@ -212,9 +199,11 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
 
         for k, v in data.items():
             setattr(block, k, v)
-        # Явное обновление поля updated_at, так как в модели метод save() не переопределён
         block.updated_at = datetime.now(timezone.utc)
-        block.save()
+        try:
+            block.save()
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         return to_response(block)
 
     except DoesNotExist:
