@@ -3,13 +3,27 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field, field_validator, ValidationInfo
-from models import RoomBlock, Status, db
+from models import RoomBlock, Status, db, init_db
 
 
 def to_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def ensure_default_statuses():
+    """Создаёт предопределённые статусы, если они отсутствуют."""
+    default_statuses = [
+        (1, 'active', 'Active block'),
+        (2, 'cancelled', 'Cancelled block'),
+        (3, 'pending', 'Pending confirmation'),
+    ]
+    for sid, name, desc in default_statuses:
+        Status.get_or_create(
+            id=sid,
+            defaults={'name': name, 'description': desc, 'is_active': True}
+        )
 
 
 class RoomBlockCreate(BaseModel):
@@ -20,7 +34,6 @@ class RoomBlockCreate(BaseModel):
     status_id: int = Field(default=1, ge=1)
     comment: str = Field(default="", max_length=500)
 
-    # Валидатор start_datetime удалён – проверка выполняется в модели RoomBlock.save()
     @field_validator("end_datetime")
     @classmethod
     def validate_end_after_start(cls, v, info: ValidationInfo):
@@ -39,7 +52,6 @@ class RoomBlockUpdate(BaseModel):
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
 
-    # Валидатор start_datetime удалён – проверка выполняется в модели RoomBlock.save()
     @field_validator("end_datetime")
     @classmethod
     def validate_end_after_start(cls, v, info: ValidationInfo):
@@ -98,6 +110,13 @@ class HealthResponse(BaseModel):
 app = FastAPI(title="Room Availability Service", version="1.0.0")
 
 
+@app.on_event("startup")
+def startup():
+    """Инициализация БД и справочников при запуске сервиса."""
+    init_db()
+    ensure_default_statuses()
+
+
 @app.on_event("shutdown")
 def shutdown():
     if not db.is_closed():
@@ -120,11 +139,6 @@ def to_response(block: RoomBlock) -> RoomBlockResponse:
 
 
 def check_overlap(room_id, start, end, exclude_id=None):
-    """
-    Проверка пересечения интервалов для активных блокировок.
-    Учитывает только блоки со статусом != cancelled.
-    Пересечение включает также случай полного совпадения интервалов (дубликат).
-    """
     query = RoomBlock.select().where(
         (RoomBlock.is_active == True)
         & (RoomBlock.room_id == room_id)
