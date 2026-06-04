@@ -3,27 +3,14 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from peewee import DoesNotExist, IntegrityError
 from pydantic import BaseModel, Field, field_validator, ValidationInfo
-from models import RoomBlock, Status, db, init_db
+from models import RoomBlock, Status, db
 
+# Импорт init_db убран – инициализация БД только в models.py
 
 def to_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def ensure_default_statuses():
-    """Создаёт предопределённые статусы, если они отсутствуют."""
-    default_statuses = [
-        (1, 'active', 'Active block'),
-        (2, 'cancelled', 'Cancelled block'),
-        (3, 'pending', 'Pending confirmation'),
-    ]
-    for sid, name, desc in default_statuses:
-        Status.get_or_create(
-            id=sid,
-            defaults={'name': name, 'description': desc, 'is_active': True}
-        )
 
 
 class RoomBlockCreate(BaseModel):
@@ -34,6 +21,14 @@ class RoomBlockCreate(BaseModel):
     status_id: int = Field(default=1, ge=1)
     comment: str = Field(default="", max_length=500)
 
+    @field_validator("start_datetime")
+    @classmethod
+    def validate_start_not_past(cls, v):
+        v = to_utc(v)
+        if v <= datetime.now(timezone.utc):
+            raise ValueError("start_datetime cannot be in the past")
+        return v
+
     @field_validator("end_datetime")
     @classmethod
     def validate_end_after_start(cls, v, info: ValidationInfo):
@@ -41,7 +36,9 @@ class RoomBlockCreate(BaseModel):
         start = info.data.get("start_datetime")
         if start is None:
             return v
-        if v <= start:
+        # Преобразуем start в UTC для корректного сравнения
+        start_utc = to_utc(start)
+        if v <= start_utc:
             raise ValueError("end_datetime must be greater than start_datetime")
         return v
 
@@ -52,14 +49,25 @@ class RoomBlockUpdate(BaseModel):
     status_id: Optional[int] = Field(None, ge=1)
     comment: Optional[str] = Field(None, max_length=500)
 
+    @field_validator("start_datetime")
+    @classmethod
+    def validate_start_not_past(cls, v):
+        if v is not None:
+            v = to_utc(v)
+            if v <= datetime.now(timezone.utc):
+                raise ValueError("start_datetime cannot be in the past")
+        return v
+
     @field_validator("end_datetime")
     @classmethod
     def validate_end_after_start(cls, v, info: ValidationInfo):
         if v is not None:
             v = to_utc(v)
             start = info.data.get("start_datetime")
-            if start is not None and v <= start:
-                raise ValueError("end_datetime must be greater than start_datetime")
+            if start is not None:
+                start_utc = to_utc(start)
+                if v <= start_utc:
+                    raise ValueError("end_datetime must be greater than start_datetime")
         return v
 
 
@@ -109,13 +117,7 @@ class HealthResponse(BaseModel):
 
 app = FastAPI(title="Room Availability Service", version="1.0.0")
 
-
-@app.on_event("startup")
-def startup():
-    """Инициализация БД и справочников при запуске сервиса."""
-    init_db()
-    ensure_default_statuses()
-
+# Инициализация БД не выполняется в service.py – только в models.py
 
 @app.on_event("shutdown")
 def shutdown():
@@ -163,23 +165,25 @@ async def create_block(block: RoomBlockCreate):
     start_utc = to_utc(block.start_datetime)
     end_utc = to_utc(block.end_datetime)
 
-    if check_overlap(block.room_id, start_utc, end_utc):
-        raise HTTPException(409, "Time overlap or duplicate block")
+    # Используем транзакцию для атомарности проверок и вставки
+    with db.atomic():
+        if check_overlap(block.room_id, start_utc, end_utc):
+            raise HTTPException(409, "Time overlap or duplicate block")
 
-    try:
-        new_block = RoomBlock.create(
-            room_id=block.room_id,
-            event_id=block.event_id,
-            status_id=block.status_id,
-            start_datetime=block.start_datetime,
-            end_datetime=block.end_datetime,
-            comment=block.comment,
-        )
-        return to_response(new_block)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except IntegrityError:
-        raise HTTPException(409, "Database conflict")
+        try:
+            new_block = RoomBlock.create(
+                room_id=block.room_id,
+                event_id=block.event_id,
+                status_id=block.status_id,
+                start_datetime=block.start_datetime,
+                end_datetime=block.end_datetime,
+                comment=block.comment,
+            )
+            return to_response(new_block)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except IntegrityError:
+            raise HTTPException(409, "Database conflict")
 
 
 @app.patch("/blocks/{block_id}", response_model=RoomBlockResponse)
@@ -211,6 +215,7 @@ async def update_block(block_id: int, block_data: RoomBlockUpdate):
             if check_overlap(block.room_id, new_start_utc, new_end_utc, block_id):
                 raise HTTPException(409, "Time overlap or duplicate block")
 
+        # Применяем изменения
         for k, v in data.items():
             setattr(block, k, v)
         block.updated_at = datetime.now(timezone.utc)
@@ -265,6 +270,7 @@ async def get_blocks(
     if date_from_utc is not None and date_to_utc is not None and date_from_utc >= date_to_utc:
         raise HTTPException(400, "date_from must be less than date_to")
 
+    # Возвращаем все записи, включая удалённые (фильтр по is_active не применяется)
     query = RoomBlock.select()
     if room_id:
         query = query.where(RoomBlock.room_id == room_id)
@@ -321,7 +327,7 @@ async def delete_status(status_id: int):
     try:
         status = Status.get_by_id(status_id)
         if not status.is_active:
-            raise HTTPException(404, "Status not found")
+            return DeleteResponse(success=False)
 
         used = RoomBlock.select().where(RoomBlock.status_id == status_id, RoomBlock.is_active == True).exists()
         if used:
@@ -331,7 +337,8 @@ async def delete_status(status_id: int):
         status.save()
         return DeleteResponse(success=True)
     except DoesNotExist:
-        raise HTTPException(404, "Status not found")
+        # Согласно новым требованиям, возвращаем success=False вместо 404
+        return DeleteResponse(success=False)
 
 
 @app.get("/statuses/{status_id}", response_model=StatusResponse)
