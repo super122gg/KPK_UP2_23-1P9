@@ -39,9 +39,7 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        indexes = [
-            (('room_id', 'start_datetime', 'end_datetime'), False),
-        ]
+        
 
     def save(self, *args, **kwargs):
         # Автоматическое обновление поля updated_at
