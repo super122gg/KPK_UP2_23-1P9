@@ -39,32 +39,19 @@ class RoomBlock(BaseModel):
         constraints = [
             Check('end_datetime > start_datetime')
         ]
-        # Индекс удалён – уникальность для активных записей проверяется в бизнес-логике (service.py)
-        # SQLite не поддерживает частичные уникальные индексы с условием WHERE is_active = true
+        # Уникальность комбинации (room_id, start, end) для активных записей
+        # проверяется в service.py, так как SQLite не поддерживает частичные уникальные индексы.
 
     def save(self, *args, **kwargs):
-        # Автоматическое обновление поля updated_at при каждом сохранении
+        # Обновляем updated_at при каждом сохранении (имитация "auto now on update")
         self.updated_at = datetime.now(timezone.utc)
-        # Вся бизнес-логика (проверка пересечений, дубликатов) вынесена в service.py
         return super().save(*args, **kwargs)
 
 def init_db(close_after: bool = False):
+    """Создаёт таблицы, если их нет. Инициализация справочников выполняется в service.py."""
     try:
         db.connect(reuse_if_open=True)
         db.create_tables([Status, RoomBlock], safe=True)
-
-        # Предопределённые статусы – вставляем только если их нет (без обновления существующих)
-        statuses = [
-            (1, 'active', 'Active block'),
-            (2, 'cancelled', 'Cancelled block'),
-            (3, 'pending', 'Pending confirmation'),
-        ]
-        for status_id, name, description in statuses:
-            Status.get_or_create(
-                id=status_id,
-                defaults={'name': name, 'description': description, 'is_active': True}
-            )
-
         if close_after:
             db.close()
     except Exception as e:
