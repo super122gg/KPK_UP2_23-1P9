@@ -14,8 +14,8 @@ class Status(BaseModel):
 
     id = IntegerField(primary_key=True)
     name = CharField(max_length=20, unique=True)
-    description = CharField(max_length=100)
-    is_active = BooleanField(default=True)          
+    description = CharField(max_length=100, default='')   # добавлено значение по умолчанию
+    is_active = BooleanField(default=True)
 
 class RoomBlock(BaseModel):
     id = AutoField()
@@ -44,7 +44,23 @@ class RoomBlock(BaseModel):
         ]
 
     def save(self, *args, **kwargs):
+        # Автоматическое обновление поля updated_at
         self.updated_at = datetime.now(timezone.utc)
+
+        # Проверка бизнес-правила: интервалы одной аудитории не должны пересекаться
+        # (кроме блоков со статусом cancelled)
+        if self.is_active and self.status_id != Status.CANCELLED_STATUS_ID:
+            overlap_query = RoomBlock.select().where(
+                (RoomBlock.is_active == True) &
+                (RoomBlock.id != self.id) &
+                (RoomBlock.room_id == self.room_id) &
+                (RoomBlock.status_id != Status.CANCELLED_STATUS_ID) &
+                (RoomBlock.start_datetime < self.end_datetime) &
+                (RoomBlock.end_datetime > self.start_datetime)
+            )
+            if overlap_query.exists():
+                raise ValueError("Time overlap with existing active block")
+
         return super().save(*args, **kwargs)
 
 def init_db(close_after: bool = False):
