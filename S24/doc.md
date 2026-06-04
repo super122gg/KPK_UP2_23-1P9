@@ -11,19 +11,19 @@ erDiagram
         int id PK
         string name
         string description
-        boolean is_active "default true"
+        boolean is_active
     }
     RoomBlock {
         int id PK
-        int room_id "внешний ID, ссылка на Room Service"
-        int event_id "внешний ID, ссылка на сервис событий"
+        int room_id
+        int event_id
         datetime start_datetime
         datetime end_datetime
         int status_id FK
         string comment
-        boolean is_active "default true"
-        datetime created_at "auto now"
-        datetime updated_at "auto now on update"
+        boolean is_active
+        datetime created_at
+        datetime updated_at
     }
     Status ||--o{ RoomBlock : "status_id = id"
 ```
